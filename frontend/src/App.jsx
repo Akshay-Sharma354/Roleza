@@ -1,122 +1,96 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import "./App.css";
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="app">
+      <header className="navbar">
+        <div className="brand">
+          <div className="brand-mark">R</div>
+          <span>Roleza</span>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
+
+        <button className="secondary-button">Settings</button>
+      </header>
+
+      <main className="hero">
+        <section className="hero-copy">
+          <p className="eyebrow">AI JOB SEARCH ASSISTANT</p>
+
+          <h1>
+            Find the right jobs.
+            <br />
+            Apply with confidence.
+          </h1>
+
+          <p className="hero-description">
+            Roleza helps you discover relevant opportunities, choose the correct
+            resume, track applications, and identify when human action is needed.
           </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+
+          <div className="hero-actions">
+            <button className="primary-button">Start Job Search</button>
+            <button className="secondary-button">View Applications</button>
+          </div>
+        </section>
+
+        <section className="dashboard-card">
+          <div className="card-header">
+            <div>
+              <p className="card-label">TODAY'S OVERVIEW</p>
+              <h2>Your job search</h2>
+            </div>
+
+            <span className="status-badge">Active</span>
+          </div>
+
+          <div className="stats-grid">
+            <div className="stat-card">
+              <span>Jobs found</span>
+              <strong>0</strong>
+            </div>
+
+            <div className="stat-card">
+              <span>Applications</span>
+              <strong>0</strong>
+            </div>
+
+            <div className="stat-card">
+              <span>Needs review</span>
+              <strong>0</strong>
+            </div>
+          </div>
+
+          <div className="activity-box">
+            <div className="activity-icon">✓</div>
+            <div>
+              <h3>Roleza is ready</h3>
+              <p>Set your preferences to begin finding matching jobs.</p>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <section className="features">
+        <article>
+          <span className="feature-number">01</span>
+          <h3>Smart matching</h3>
+          <p>Find roles based on your skills, location, experience, and goals.</p>
+        </article>
+
+        <article>
+          <span className="feature-number">02</span>
+          <h3>Resume selection</h3>
+          <p>Automatically use the right resume for AI or recruitment roles.</p>
+        </article>
+
+        <article>
+          <span className="feature-number">03</span>
+          <h3>Application tracking</h3>
+          <p>See what was applied to and where your attention is required.</p>
+        </article>
       </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+    </div>
+  );
 }
 
-export default App
+export default App;
