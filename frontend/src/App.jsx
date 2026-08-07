@@ -3,6 +3,8 @@ import "./App.css";
 
 function App() {
   const [showPreferences, setShowPreferences] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+
   const [preferences, setPreferences] = useState({
     roleType: "AI",
     location: "India",
@@ -21,23 +23,35 @@ function App() {
 
   function handleSubmit(event) {
     event.preventDefault();
-
-    alert(
-      `Search started for ${preferences.roleType} roles in ${
-        preferences.location
-      }. Remote only: ${preferences.remoteOnly ? "Yes" : "No"}`
-    );
-
     setShowPreferences(false);
+    setShowResults(true);
+  }
+
+  function getSelectedResume() {
+    if (preferences.resume === "ai") {
+      return "AI Resume";
+    }
+
+    if (preferences.resume === "recruitment") {
+      return "US IT Resume";
+    }
+
+    return preferences.roleType === "US IT Recruiter"
+      ? "US IT Resume"
+      : "AI Resume";
   }
 
   return (
     <div className="app">
       <header className="navbar">
-        <div className="brand">
+        <button
+          className="brand brand-button"
+          onClick={() => setShowResults(false)}
+          aria-label="Return to Roleza home"
+        >
           <div className="brand-mark">R</div>
           <span>Roleza</span>
-        </div>
+        </button>
 
         <button
           className="secondary-button"
@@ -47,90 +61,198 @@ function App() {
         </button>
       </header>
 
-      <main className="hero">
-        <section className="hero-copy">
-          <p className="eyebrow">AI JOB SEARCH ASSISTANT</p>
+      {showResults ? (
+        <main className="results-page">
+          <div className="results-header">
+            <div>
+              <p className="eyebrow">MATCHED OPPORTUNITIES</p>
+              <h1>Jobs selected for you</h1>
 
-          <h1>
-            Find the right jobs.
-            <br />
-            Apply with confidence.
-          </h1>
+              <p>
+                Showing {preferences.roleType} roles for {preferences.location}
+                {preferences.remoteOnly
+                  ? " with remote-only filtering."
+                  : "."}
+              </p>
+            </div>
 
-          <p className="hero-description">
-            Roleza helps you discover relevant opportunities, choose the correct
-            resume, track applications, and identify when human action is needed.
-          </p>
-
-          <div className="hero-actions">
             <button
-              className="primary-button"
+              className="secondary-button"
               onClick={() => setShowPreferences(true)}
             >
-              Start Job Search
+              Edit preferences
             </button>
-
-            <button className="secondary-button">View Applications</button>
-          </div>
-        </section>
-
-        <section className="dashboard-card">
-          <div className="card-header">
-            <div>
-              <p className="card-label">TODAY&apos;S OVERVIEW</p>
-              <h2>Your job search</h2>
-            </div>
-
-            <span className="status-badge">Active</span>
           </div>
 
-          <div className="stats-grid">
-            <div className="stat-card">
-              <span>Jobs found</span>
-              <strong>0</strong>
-            </div>
+          <div className="results-grid">
+            <article className="job-card">
+              <div className="job-card-top">
+                <div>
+                  <span className="job-source">Company career page</span>
+                  <h2>Junior AI Engineer</h2>
+                  <p>Nova Intelligence</p>
+                </div>
 
-            <div className="stat-card">
-              <span>Applications</span>
-              <strong>0</strong>
-            </div>
+                <span className="fresh-badge">Posted today</span>
+              </div>
 
-            <div className="stat-card">
-              <span>Needs review</span>
-              <strong>0</strong>
-            </div>
+              <div className="job-meta">
+                <span>Remote</span>
+                <span>India</span>
+                <span>Entry level</span>
+              </div>
+
+              <p className="job-description">
+                Build AI-powered workflows, work with language models, and
+                support production automation systems.
+              </p>
+
+              <div className="resume-row">
+                <span>Resume selected</span>
+                <strong>{getSelectedResume()}</strong>
+              </div>
+
+              <div className="job-actions">
+                <button className="secondary-button">Review job</button>
+                <button className="primary-button">Apply</button>
+              </div>
+            </article>
+
+            <article className="job-card">
+              <div className="job-card-top">
+                <div>
+                  <span className="job-source">Startup job board</span>
+                  <h2>AI Automation Associate</h2>
+                  <p>FlowForge Labs</p>
+                </div>
+
+                <span className="fresh-badge">Posted 3 hours ago</span>
+              </div>
+
+              <div className="job-meta">
+                <span>Remote</span>
+                <span>Worldwide</span>
+                <span>Fresher friendly</span>
+              </div>
+
+              <p className="job-description">
+                Help create internal AI agents, test prompts, document
+                workflows, and improve automation quality.
+              </p>
+
+              <div className="resume-row">
+                <span>Status</span>
+                <strong>Human review needed</strong>
+              </div>
+
+              <div className="job-actions">
+                <button className="secondary-button">Review job</button>
+                <button className="primary-button">Apply</button>
+              </div>
+            </article>
           </div>
+        </main>
+      ) : (
+        <>
+          <main className="hero">
+            <section className="hero-copy">
+              <p className="eyebrow">AI JOB SEARCH ASSISTANT</p>
 
-          <div className="activity-box">
-            <div className="activity-icon">✓</div>
+              <h1>
+                Find the right jobs.
+                <br />
+                Apply with confidence.
+              </h1>
 
-            <div>
-              <h3>Roleza is ready</h3>
-              <p>Set your preferences to begin finding matching jobs.</p>
-            </div>
-          </div>
-        </section>
-      </main>
+              <p className="hero-description">
+                Roleza helps you discover relevant opportunities, choose the
+                correct resume, track applications, and identify when human
+                action is needed.
+              </p>
 
-      <section className="features">
-        <article>
-          <span className="feature-number">01</span>
-          <h3>Smart matching</h3>
-          <p>Find roles based on your skills, location, experience, and goals.</p>
-        </article>
+              <div className="hero-actions">
+                <button
+                  className="primary-button"
+                  onClick={() => setShowPreferences(true)}
+                >
+                  Start Job Search
+                </button>
 
-        <article>
-          <span className="feature-number">02</span>
-          <h3>Resume selection</h3>
-          <p>Automatically use the right resume for AI or recruitment roles.</p>
-        </article>
+                <button className="secondary-button">
+                  View Applications
+                </button>
+              </div>
+            </section>
 
-        <article>
-          <span className="feature-number">03</span>
-          <h3>Application tracking</h3>
-          <p>See what was applied to and where your attention is required.</p>
-        </article>
-      </section>
+            <section className="dashboard-card">
+              <div className="card-header">
+                <div>
+                  <p className="card-label">TODAY&apos;S OVERVIEW</p>
+                  <h2>Your job search</h2>
+                </div>
+
+                <span className="status-badge">Active</span>
+              </div>
+
+              <div className="stats-grid">
+                <div className="stat-card">
+                  <span>Jobs found</span>
+                  <strong>0</strong>
+                </div>
+
+                <div className="stat-card">
+                  <span>Applications</span>
+                  <strong>0</strong>
+                </div>
+
+                <div className="stat-card">
+                  <span>Needs review</span>
+                  <strong>0</strong>
+                </div>
+              </div>
+
+              <div className="activity-box">
+                <div className="activity-icon">✓</div>
+
+                <div>
+                  <h3>Roleza is ready</h3>
+                  <p>
+                    Set your preferences to begin finding matching jobs.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </main>
+
+          <section className="features">
+            <article>
+              <span className="feature-number">01</span>
+              <h3>Smart matching</h3>
+              <p>
+                Find roles based on your skills, location, experience, and
+                goals.
+              </p>
+            </article>
+
+            <article>
+              <span className="feature-number">02</span>
+              <h3>Resume selection</h3>
+              <p>
+                Automatically use the right resume for AI or recruitment
+                roles.
+              </p>
+            </article>
+
+            <article>
+              <span className="feature-number">03</span>
+              <h3>Application tracking</h3>
+              <p>
+                See what was applied to and where your attention is required.
+              </p>
+            </article>
+          </section>
+        </>
+      )}
 
       {showPreferences && (
         <div
@@ -165,7 +287,9 @@ function App() {
                   onChange={handleChange}
                 >
                   <option value="AI">AI Engineer</option>
-                  <option value="US IT Recruiter">US IT Recruiter</option>
+                  <option value="US IT Recruiter">
+                    US IT Recruiter
+                  </option>
                   <option value="Both">Both role types</option>
                 </select>
               </label>
@@ -178,7 +302,9 @@ function App() {
                   onChange={handleChange}
                 >
                   <option value="India">India</option>
-                  <option value="Remote worldwide">Remote worldwide</option>
+                  <option value="Remote worldwide">
+                    Remote worldwide
+                  </option>
                   <option value="Singapore">Singapore</option>
                   <option value="Dubai">Dubai</option>
                   <option value="Thailand">Thailand</option>
@@ -205,6 +331,7 @@ function App() {
                   checked={preferences.remoteOnly}
                   onChange={handleChange}
                 />
+
                 <span>
                   <strong>Remote jobs only</strong>
                   <small>Exclude office and hybrid opportunities.</small>
