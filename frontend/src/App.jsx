@@ -4,6 +4,9 @@ import "./App.css";
 function App() {
   const [showPreferences, setShowPreferences] = useState(false);
   const [showResults, setShowResults] = useState(false);
+  const [jobs, setJobs] = useState([]);
+  const [loadingJobs, setLoadingJobs] = useState(false);
+  const [jobsError, setJobsError] = useState("");
 
   const [preferences, setPreferences] = useState({
     roleType: "AI",
@@ -21,10 +24,31 @@ function App() {
     }));
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
+
     setShowPreferences(false);
     setShowResults(true);
+    setLoadingJobs(true);
+    setJobsError("");
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/jobs");
+
+      if (!response.ok) {
+        throw new Error("Unable to load jobs.");
+      }
+
+      const data = await response.json();
+      setJobs(data.jobs || []);
+    } catch (error) {
+      setJobsError(
+        error instanceof Error ? error.message : "Unable to load jobs."
+      );
+      setJobs([]);
+    } finally {
+      setLoadingJobs(false);
+    }
   }
 
   function getSelectedResume() {
@@ -84,73 +108,76 @@ function App() {
             </button>
           </div>
 
-          <div className="results-grid">
-            <article className="job-card">
-              <div className="job-card-top">
-                <div>
-                  <span className="job-source">Company career page</span>
-                  <h2>Junior AI Engineer</h2>
-                  <p>Nova Intelligence</p>
-                </div>
+          {loadingJobs && (
+            <div className="results-message">
+              <h2>Searching for matching jobs...</h2>
+              <p>Roleza is loading opportunities from the backend.</p>
+            </div>
+          )}
 
-                <span className="fresh-badge">Posted today</span>
-              </div>
+          {jobsError && (
+            <div className="results-message error-message">
+              <h2>Could not load jobs</h2>
+              <p>{jobsError}</p>
+            </div>
+          )}
 
-              <div className="job-meta">
-                <span>Remote</span>
-                <span>India</span>
-                <span>Entry level</span>
-              </div>
+          {!loadingJobs && !jobsError && jobs.length === 0 && (
+            <div className="results-message">
+              <h2>No matching jobs found</h2>
+              <p>Try changing your role or location preferences.</p>
+            </div>
+          )}
 
-              <p className="job-description">
-                Build AI-powered workflows, work with language models, and
-                support production automation systems.
-              </p>
+          {!loadingJobs && !jobsError && jobs.length > 0 && (
+            <div className="results-grid">
+              {jobs.map((job) => (
+                <article className="job-card" key={job.id}>
+                  <div className="job-card-top">
+                    <div>
+                      <span className="job-source">{job.source}</span>
+                      <h2>{job.title}</h2>
+                      <p>{job.company}</p>
+                    </div>
 
-              <div className="resume-row">
-                <span>Resume selected</span>
-                <strong>{getSelectedResume()}</strong>
-              </div>
+                    <span className="fresh-badge">{job.posted}</span>
+                  </div>
 
-              <div className="job-actions">
-                <button className="secondary-button">Review job</button>
-                <button className="primary-button">Apply</button>
-              </div>
-            </article>
+                  <div className="job-meta">
+                    <span>{job.work_mode}</span>
+                    <span>{job.location}</span>
+                    <span>{job.experience}</span>
+                  </div>
 
-            <article className="job-card">
-              <div className="job-card-top">
-                <div>
-                  <span className="job-source">Startup job board</span>
-                  <h2>AI Automation Associate</h2>
-                  <p>FlowForge Labs</p>
-                </div>
+                  <p className="job-description">{job.description}</p>
 
-                <span className="fresh-badge">Posted 3 hours ago</span>
-              </div>
+                  <div className="resume-row">
+                    <span>
+                      {job.requires_human_review
+                        ? "Status"
+                        : "Resume selected"}
+                    </span>
 
-              <div className="job-meta">
-                <span>Remote</span>
-                <span>Worldwide</span>
-                <span>Fresher friendly</span>
-              </div>
+                    <strong>
+                      {job.requires_human_review
+                        ? job.status
+                        : getSelectedResume()}
+                    </strong>
+                  </div>
 
-              <p className="job-description">
-                Help create internal AI agents, test prompts, document
-                workflows, and improve automation quality.
-              </p>
+                  <div className="job-actions">
+                    <button className="secondary-button">
+                      Review job
+                    </button>
 
-              <div className="resume-row">
-                <span>Status</span>
-                <strong>Human review needed</strong>
-              </div>
-
-              <div className="job-actions">
-                <button className="secondary-button">Review job</button>
-                <button className="primary-button">Apply</button>
-              </div>
-            </article>
-          </div>
+                    <button className="primary-button">
+                      Apply
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </main>
       ) : (
         <>
@@ -197,7 +224,7 @@ function App() {
               <div className="stats-grid">
                 <div className="stat-card">
                   <span>Jobs found</span>
-                  <strong>0</strong>
+                  <strong>{jobs.length}</strong>
                 </div>
 
                 <div className="stat-card">
@@ -207,7 +234,13 @@ function App() {
 
                 <div className="stat-card">
                   <span>Needs review</span>
-                  <strong>0</strong>
+                  <strong>
+                    {
+                      jobs.filter(
+                        (job) => job.requires_human_review
+                      ).length
+                    }
+                  </strong>
                 </div>
               </div>
 
@@ -278,7 +311,10 @@ function App() {
               </button>
             </div>
 
-            <form className="preferences-form" onSubmit={handleSubmit}>
+            <form
+              className="preferences-form"
+              onSubmit={handleSubmit}
+            >
               <label>
                 Role type
                 <select
@@ -287,10 +323,14 @@ function App() {
                   onChange={handleChange}
                 >
                   <option value="AI">AI Engineer</option>
+
                   <option value="US IT Recruiter">
                     US IT Recruiter
                   </option>
-                  <option value="Both">Both role types</option>
+
+                  <option value="Both">
+                    Both role types
+                  </option>
                 </select>
               </label>
 
@@ -302,9 +342,11 @@ function App() {
                   onChange={handleChange}
                 >
                   <option value="India">India</option>
+
                   <option value="Remote worldwide">
                     Remote worldwide
                   </option>
+
                   <option value="Singapore">Singapore</option>
                   <option value="Dubai">Dubai</option>
                   <option value="Thailand">Thailand</option>
@@ -318,9 +360,15 @@ function App() {
                   value={preferences.resume}
                   onChange={handleChange}
                 >
-                  <option value="auto">Choose automatically</option>
+                  <option value="auto">
+                    Choose automatically
+                  </option>
+
                   <option value="ai">AI resume</option>
-                  <option value="recruitment">US IT resume</option>
+
+                  <option value="recruitment">
+                    US IT resume
+                  </option>
                 </select>
               </label>
 
@@ -334,7 +382,9 @@ function App() {
 
                 <span>
                   <strong>Remote jobs only</strong>
-                  <small>Exclude office and hybrid opportunities.</small>
+                  <small>
+                    Exclude office and hybrid opportunities.
+                  </small>
                 </span>
               </label>
 
@@ -347,7 +397,10 @@ function App() {
                   Cancel
                 </button>
 
-                <button type="submit" className="primary-button">
+                <button
+                  type="submit"
+                  className="primary-button"
+                >
                   Start Search
                 </button>
               </div>

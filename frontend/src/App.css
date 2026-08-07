@@ -538,3 +538,24 @@ button {
     width: 100%;
   }
 }
+.results-message {
+  margin-top: 42px;
+  padding: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 22px;
+  background: rgba(18, 24, 43, 0.82);
+}
+
+.results-message h2,
+.results-message p {
+  margin: 0;
+}
+
+.results-message p {
+  margin-top: 10px;
+  color: #9ea8be;
+}
+
+.error-message {
+  border-color: rgba(255, 107, 107, 0.35);
+}
