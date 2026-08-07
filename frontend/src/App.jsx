@@ -33,7 +33,15 @@ function App() {
     setJobsError("");
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/jobs");
+  const params = new URLSearchParams({
+  role_type: preferences.roleType,
+  location: preferences.location,
+  remote_only: String(preferences.remoteOnly),
+});
+
+const response = await fetch(
+  `http://127.0.0.1:8000/jobs?${params.toString()}`
+);
 
       if (!response.ok) {
         throw new Error("Unable to load jobs.");
