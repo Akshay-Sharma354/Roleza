@@ -16,3 +16,10 @@ dist/
 
 # macOS
 .DS_Store
+__pycache__/
+*.pyc
+backend/roleza.db
+*.db-journal
+*.db-shm
+*.db-wal
+backend/resumes/
