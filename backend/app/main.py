@@ -7,10 +7,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from requests import RequestException
 
 from app.routes.browser import router as browser_router
-from app.services.job_sources import fetch_arbeitnow_jobs
+from app.services.job_sources import fetch_all_live_jobs
+from app.services.job_scoring import score_job
 
 
 app = FastAPI(title="Roleza API")
@@ -121,7 +121,8 @@ def initialize_database():
             connection.execute(
                 """
                 ALTER TABLE applications
-                ADD COLUMN remote_eligibility TEXT NOT NULL DEFAULT 'Unknown'
+                ADD COLUMN remote_eligibility
+                TEXT NOT NULL DEFAULT 'Unknown'
                 """
             )
 
@@ -145,13 +146,13 @@ def application_row_to_dict(row):
         ),
         "applied_at": row["applied_at"],
         "job_url": row["job_url"],
-        "remote_eligibility": row[
-            "remote_eligibility"
-        ],
+        "remote_eligibility": row["remote_eligibility"],
     }
 
 
-def is_blocked_company(company_name: str) -> bool:
+def is_blocked_company(
+    company_name: str,
+) -> bool:
     normalized_name = (
         company_name
         or ""
@@ -163,8 +164,12 @@ def is_blocked_company(company_name: str) -> bool:
     )
 
 
-def get_resume_for_role(role_type: str):
-    resume_path = RESUME_FILES.get(role_type)
+def get_resume_for_role(
+    role_type: str,
+):
+    resume_path = RESUME_FILES.get(
+        role_type
+    )
 
     if resume_path is None:
         return None
@@ -177,7 +182,9 @@ def get_resume_for_role(role_type: str):
     }
 
 
-def create_stable_job_id(external_id: str) -> int:
+def create_stable_job_id(
+    external_id: str,
+) -> int:
     digest = sha256(
         external_id.encode("utf-8")
     ).digest()
@@ -186,6 +193,49 @@ def create_stable_job_id(external_id: str) -> int:
         digest[:8],
         byteorder="big",
     ) & 0x7FFFFFFFFFFFFFFF
+
+
+def location_has_blocked_region_for_india(
+    job_location: str,
+) -> bool:
+    location = (
+        job_location
+        or ""
+    ).lower()
+
+    blocked_phrases = [
+        "usa",
+        "united states",
+        "remote us",
+        "remote usa",
+        "us remote",
+        "san francisco",
+        "new york",
+        "washington, dc",
+        "washington d.c",
+        "london",
+        "united kingdom",
+        " uk",
+        "uk ",
+        "berlin",
+        "germany",
+        "remote europe",
+        "remote - europe",
+        "europe only",
+        "latin america",
+        "colombia",
+        "brazil",
+        "argentina",
+        "chile",
+        "mexico",
+        "türkiye",
+        "turkey",
+    ]
+
+    return any(
+        phrase in location
+        for phrase in blocked_phrases
+    )
 
 
 def location_matches(
@@ -215,11 +265,25 @@ def location_matches(
         return True
 
     if requested_location == "India":
-        return eligibility in [
+        if eligibility in [
             "Worldwide",
             "India",
-            "Unknown",
-        ]
+        ]:
+            return True
+
+        if "india" in job_location_lower:
+            return True
+
+        if (
+            eligibility == "Unknown"
+            and "remote" in job_location_lower
+            and not location_has_blocked_region_for_india(
+                job_location
+            )
+        ):
+            return True
+
+        return False
 
     if requested_location == "Singapore":
         return (
@@ -232,8 +296,7 @@ def location_matches(
         return (
             "dubai" in job_location_lower
             or "uae" in job_location_lower
-            or "united arab emirates"
-            in job_location_lower
+            or "united arab emirates" in job_location_lower
             or eligibility == "Worldwide"
             or eligibility == "Unknown"
         )
@@ -281,18 +344,7 @@ def get_jobs(
     ),
 ):
     try:
-        live_jobs = fetch_arbeitnow_jobs(
-            pages=2
-        )
-
-    except RequestException as error:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Roleza could not reach the live "
-                "job source. Please try again."
-            ),
-        ) from error
+        live_result = fetch_all_live_jobs()
 
     except Exception as error:
         raise HTTPException(
@@ -303,6 +355,21 @@ def get_jobs(
             ),
         ) from error
 
+    live_jobs = live_result.get(
+        "jobs",
+        [],
+    )
+
+    source_errors = live_result.get(
+        "source_errors",
+        [],
+    )
+
+    sources = live_result.get(
+        "sources",
+        [],
+    )
+
     filtered_jobs = []
 
     for job in live_jobs:
@@ -311,7 +378,9 @@ def get_jobs(
             "",
         )
 
-        if is_blocked_company(company):
+        if is_blocked_company(
+            company
+        ):
             continue
 
         if (
@@ -322,7 +391,10 @@ def get_jobs(
 
         if (
             remote_only
-            and not job.get("remote", False)
+            and not job.get(
+                "remote",
+                False,
+            )
         ):
             continue
 
@@ -341,7 +413,10 @@ def get_jobs(
 
         external_id = job.get(
             "external_id",
-            job.get("job_url", ""),
+            job.get(
+                "job_url",
+                "",
+            ),
         )
 
         if not external_id:
@@ -374,10 +449,14 @@ def get_jobs(
             )
 
         if (
-            job_copy.get("remote_eligibility")
+            job_copy.get(
+                "remote_eligibility"
+            )
             == "Unknown"
         ):
-            job_copy["requires_human_review"] = True
+            job_copy[
+                "requires_human_review"
+            ] = True
 
         job_copy["status"] = (
             "Needs human review"
@@ -388,24 +467,61 @@ def get_jobs(
             else "Ready to apply"
         )
 
+        job_copy = score_job(
+            job_copy
+        )
+
         filtered_jobs.append(
             job_copy
         )
 
     filtered_jobs.sort(
         key=lambda item: (
-            item.get("created_at")
-            or 0
+            item.get(
+                "fit_score",
+                0,
+            ),
+            item.get(
+                "created_at",
+                0,
+            ),
         ),
         reverse=True,
     )
 
+    high_priority_count = sum(
+        1
+        for job in filtered_jobs
+        if job.get(
+            "priority"
+        ) == "High"
+    )
+
+    medium_priority_count = sum(
+        1
+        for job in filtered_jobs
+        if job.get(
+            "priority"
+        ) == "Medium"
+    )
+
     return {
         "jobs": filtered_jobs,
-        "total": len(filtered_jobs),
-        "source": "Arbeitnow",
+        "total": len(
+            filtered_jobs
+        ),
+        "high_priority": (
+            high_priority_count
+        ),
+        "medium_priority": (
+            medium_priority_count
+        ),
+        "sources": sources,
         "live": True,
-        "blocked_companies": BLOCKED_COMPANIES,
+        "source_errors": source_errors,
+        "blocked_companies": (
+            BLOCKED_COMPANIES
+        ),
     }
 
 
@@ -441,17 +557,23 @@ def get_resumes():
     }
 
 
-@app.get("/resumes/{role_type}")
-def download_resume(role_type: str):
+@app.get(
+    "/resumes/{role_type}"
+)
+def download_resume(
+    role_type: str,
+):
     if role_type not in RESUME_FILES:
         raise HTTPException(
             status_code=404,
             detail="Resume type not found.",
         )
 
-    resume_path = RESUME_FILES[
-        role_type
-    ]
+    resume_path = (
+        RESUME_FILES[
+            role_type
+        ]
+    )
 
     if not resume_path.exists():
         raise HTTPException(
@@ -479,7 +601,9 @@ def get_applications():
 
     return {
         "applications": [
-            application_row_to_dict(row)
+            application_row_to_dict(
+                row
+            )
             for row in rows
         ]
     }
@@ -498,13 +622,15 @@ def create_application(
         raise HTTPException(
             status_code=403,
             detail=(
-                "Applications to this company "
-                "are blocked."
+                "Applications to this "
+                "company are blocked."
             ),
         )
 
-    resume_path = RESUME_FILES.get(
-        application.role_type
+    resume_path = (
+        RESUME_FILES.get(
+            application.role_type
+        )
     )
 
     if resume_path is None:
@@ -525,8 +651,10 @@ def create_application(
             ),
         )
 
-    applied_at = datetime.now().isoformat(
-        timespec="seconds"
+    applied_at = (
+        datetime.now().isoformat(
+            timespec="seconds"
+        )
     )
 
     try:
@@ -549,7 +677,8 @@ def create_application(
                     remote_eligibility
                 )
                 VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -563,11 +692,13 @@ def create_application(
                     resume_path.name,
                     application.status,
                     int(
-                        application.requires_human_review
+                        application
+                        .requires_human_review
                     ),
                     applied_at,
                     application.job_url,
-                    application.remote_eligibility,
+                    application
+                    .remote_eligibility,
                 ),
             )
 
@@ -581,8 +712,8 @@ def create_application(
         raise HTTPException(
             status_code=409,
             detail=(
-                "This job is already in your "
-                "application tracker."
+                "This job is already "
+                "in your application tracker."
             ),
         ) from error
 

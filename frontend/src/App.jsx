@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -11,31 +11,78 @@ function App() {
   const [applications, setApplications] = useState([]);
 
   const [loadingJobs, setLoadingJobs] = useState(false);
-  const [loadingApplications, setLoadingApplications] = useState(true);
-
   const [jobsError, setJobsError] = useState("");
-  const [applicationsError, setApplicationsError] = useState("");
 
-  const [applyingJobId, setApplyingJobId] = useState(null);
+  const [inspectionJob, setInspectionJob] = useState(null);
+  const [inspectionData, setInspectionData] = useState(null);
+  const [inspectionLoading, setInspectionLoading] =
+    useState(false);
+  const [inspectionError, setInspectionError] = useState("");
 
   const [preferences, setPreferences] = useState({
-    roleType: "AI",
+    roleType: "Both",
     location: "India",
-    remoteOnly: true,
     resume: "auto",
+    remoteOnly: true,
   });
 
   useEffect(() => {
     loadApplications();
   }, []);
 
-  function handleChange(event) {
-    const { name, value, type, checked } = event.target;
+  async function loadApplications() {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/applications`
+      );
 
-    setPreferences((current) => ({
-      ...current,
-      [name]: type === "checkbox" ? checked : value,
-    }));
+      const data = await response.json();
+
+      setApplications(
+        data.applications || []
+      );
+    } catch (error) {
+      console.error(
+        "Could not load applications:",
+        error
+      );
+    }
+  }
+
+  async function findJobs() {
+    setLoadingJobs(true);
+    setJobsError("");
+
+    try {
+      const params = new URLSearchParams({
+        role_type: preferences.roleType,
+        location: preferences.location,
+        remote_only: preferences.remoteOnly,
+      });
+
+      const response = await fetch(
+        `${API_BASE_URL}/jobs?${params.toString()}`
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "Could not load jobs."
+        );
+      }
+
+      const data = await response.json();
+
+      setJobs(data.jobs || []);
+      setCurrentPage("results");
+    } catch (error) {
+      console.error(error);
+
+      setJobsError(
+        "Roleza could not load live jobs. Make sure the backend is running."
+      );
+    } finally {
+      setLoadingJobs(false);
+    }
   }
 
   function getDisplayRoleType(roleType) {
@@ -51,7 +98,9 @@ function App() {
   }
 
   function getResumeLabel(job) {
-    if (job?.role_type === "US IT Recruiter") {
+    if (
+      job.role_type === "US IT Recruiter"
+    ) {
       return "BDM Resume";
     }
 
@@ -59,101 +108,83 @@ function App() {
   }
 
   function getResumeDownloadUrl(roleType) {
-    return `${API_BASE_URL}/resumes/${encodeURIComponent(roleType)}`;
+    return `${API_BASE_URL}/resumes/${encodeURIComponent(
+      roleType
+    )}`;
   }
 
-  function getEligibilityLabel(value) {
-    return value || "Unknown";
+  function getEligibilityLabel(job) {
+    return (
+      job.remote_eligibility
+      || "Unknown"
+    );
   }
 
-  function getEligibilityClass(value) {
-    if (value === "Worldwide" || value === "India") {
+  function getEligibilityClass(job) {
+    const eligibility =
+      job.remote_eligibility
+      || "Unknown";
+
+    if (
+      eligibility === "Worldwide"
+      || eligibility === "India"
+    ) {
       return "eligibility-good";
     }
 
-    if (value === "Unknown") {
+    if (eligibility === "Unknown") {
       return "eligibility-review";
     }
 
     return "eligibility-limited";
   }
 
-  async function loadApplications() {
-    setLoadingApplications(true);
-    setApplicationsError("");
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/applications`);
-
-      if (!response.ok) {
-        throw new Error("Unable to load saved applications.");
-      }
-
-      const data = await response.json();
-
-      setApplications(data.applications || []);
-    } catch (error) {
-      setApplicationsError(
-        error instanceof Error
-          ? error.message
-          : "Unable to load saved applications."
-      );
-    } finally {
-      setLoadingApplications(false);
+  function getPriorityClass(priority) {
+    if (priority === "High") {
+      return "priority-high";
     }
+
+    if (priority === "Medium") {
+      return "priority-medium";
+    }
+
+    return "priority-low";
   }
 
-  async function searchJobs() {
-    setShowPreferences(false);
-    setCurrentPage("results");
-    setLoadingJobs(true);
-    setJobsError("");
-
-    try {
-      const params = new URLSearchParams({
-        role_type: preferences.roleType,
-        location: preferences.location,
-        remote_only: String(preferences.remoteOnly),
-      });
-
-      const response = await fetch(
-        `${API_BASE_URL}/jobs?${params.toString()}`
-      );
-
-      if (!response.ok) {
-        throw new Error("Unable to load jobs.");
-      }
-
-      const data = await response.json();
-
-      setJobs(data.jobs || []);
-    } catch (error) {
-      setJobsError(
-        error instanceof Error
-          ? error.message
-          : "Unable to load jobs."
-      );
-
-      setJobs([]);
-    } finally {
-      setLoadingJobs(false);
+  function getScoreClass(score) {
+    if (score >= 80) {
+      return "fit-high";
     }
+
+    if (score >= 60) {
+      return "fit-medium";
+    }
+
+    return "fit-low";
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    await searchJobs();
+  function getRecommendationClass(
+    recommendation
+  ) {
+    if (
+      recommendation ===
+      "Strong candidate for auto-apply"
+    ) {
+      return "recommendation-good";
+    }
+
+    if (
+      recommendation ===
+      "Review before applying"
+    ) {
+      return "recommendation-review";
+    }
+
+    return "recommendation-skip";
   }
 
   async function handleApply(job) {
-    if (isJobApplied(job.id) || applyingJobId === job.id) {
-      return;
-    }
-
-    setApplyingJobId(job.id);
-    setApplicationsError("");
-
-    const applicationData = {
+    const payload = {
       job_id: job.id,
       title: job.title,
       company: job.company,
@@ -161,748 +192,1352 @@ function App() {
       location: job.location,
       work_mode: job.work_mode,
       source: job.source,
-      resume: job.resume_filename || getResumeLabel(job),
-      status: job.requires_human_review
-        ? "Needs human review"
-        : "Ready to submit",
-      requires_human_review: job.requires_human_review,
-      job_url: job.job_url || "",
-      remote_eligibility: job.remote_eligibility || "Unknown",
+
+      resume:
+        job.resume_filename
+        || getResumeLabel(job),
+
+      status:
+        job.requires_human_review
+          ? "Needs human review"
+          : "Ready to submit",
+
+      requires_human_review:
+        job.requires_human_review,
+
+      job_url:
+        job.job_url || "",
+
+      remote_eligibility:
+        job.remote_eligibility
+        || "Unknown",
     };
 
     try {
-      const response = await fetch(`${API_BASE_URL}/applications`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(applicationData),
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/applications`,
+        {
+          method: "POST",
 
-      const data = await response.json();
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify(
+            payload
+          ),
+        }
+      );
+
+      const data =
+        await response.json();
 
       if (!response.ok) {
+        if (response.status === 409) {
+          alert(
+            "This job is already in your application tracker."
+          );
+
+          return;
+        }
+
         throw new Error(
-          data.detail || "Unable to save this application."
+          data.detail
+          || "Could not save application."
         );
       }
 
-      setApplications((current) => [
-        data.application,
-        ...current,
-      ]);
-    } catch (error) {
-      setApplicationsError(
-        error instanceof Error
-          ? error.message
-          : "Unable to save this application."
+      await loadApplications();
+
+      alert(
+        "Job added to your application tracker."
       );
-    } finally {
-      setApplyingJobId(null);
+    } catch (error) {
+      alert(
+        error.message
+        || "Could not add application."
+      );
     }
   }
 
-  function isJobApplied(jobId) {
-    return applications.some(
-      (application) => application.job_id === jobId
-    );
+  async function inspectApplication(job) {
+    if (!job.job_url) {
+      alert(
+        "This job does not have an application URL."
+      );
+
+      return;
+    }
+
+    setInspectionJob(job);
+    setInspectionData(null);
+    setInspectionError("");
+    setInspectionLoading(true);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/browser/inspect-application`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            job_url: job.job_url,
+          }),
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail
+          || "Application inspection failed."
+        );
+      }
+
+      setInspectionData(data);
+    } catch (error) {
+      console.error(error);
+
+      setInspectionError(
+        error.message
+        || "Roleza could not inspect this application."
+      );
+    } finally {
+      setInspectionLoading(false);
+    }
   }
 
-  function goHome() {
-    setCurrentPage("home");
+  function closeInspection() {
+    setInspectionJob(null);
+    setInspectionData(null);
+    setInspectionError("");
+    setInspectionLoading(false);
   }
 
-  async function openApplications() {
-    setCurrentPage("applications");
-    await loadApplications();
+  function shortenQuestion(context) {
+    if (!context) {
+      return "Unknown question";
+    }
+
+    let cleaned = context
+      .replace(
+        /^question_\d+\s+off\s+/i,
+        ""
+      )
+      .replace(
+        /^\d+\s+off\s+/i,
+        ""
+      )
+      .replace(/\*+$/, "")
+      .trim();
+
+    if (cleaned.length > 180) {
+      cleaned =
+        `${cleaned.slice(0, 177)}...`;
+    }
+
+    return cleaned;
   }
 
-  const humanReviewCount = applications.filter(
-    (application) => application.requires_human_review
-  ).length;
+  const appliedJobIds = useMemo(
+    () =>
+      new Set(
+        applications.map(
+          (application) =>
+            application.job_id
+        )
+      ),
+    [applications]
+  );
+
+  const highPriorityCount =
+    jobs.filter(
+      (job) =>
+        job.priority === "High"
+    ).length;
+
+  const reviewCount =
+    jobs.filter(
+      (job) =>
+        job.requires_human_review
+    ).length;
+
+  const inspectionSummary =
+    inspectionData?.summary;
 
   return (
-    <div className="app">
-      <header className="navbar">
+    <div className="app-shell">
+      <header className="topbar">
         <button
-          className="brand brand-button"
-          onClick={goHome}
-          aria-label="Return to Roleza home"
+          className="brand-button"
+          onClick={() =>
+            setCurrentPage("home")
+          }
         >
-          <div className="brand-mark">R</div>
+          <span className="brand-mark">
+            R
+          </span>
+
           <span>Roleza</span>
         </button>
 
-        <div className="navbar-actions">
+        <nav className="topbar-actions">
           <button
-            className="secondary-button"
-            onClick={openApplications}
+            className="nav-button"
+            onClick={() =>
+              setCurrentPage(
+                "applications"
+              )
+            }
           >
             Applications
           </button>
 
           <button
-            className="secondary-button"
-            onClick={() => setShowPreferences(true)}
+            className="settings-button"
+            onClick={() =>
+              setShowPreferences(true)
+            }
           >
             Settings
           </button>
-        </div>
+        </nav>
       </header>
 
       {currentPage === "home" && (
-        <>
-          <main className="hero">
-            <section className="hero-copy">
-              <p className="eyebrow">
-                AI JOB SEARCH ASSISTANT
-              </p>
-
-              <h1>
-                Find the right jobs.
-                <br />
-                Apply with confidence.
-              </h1>
-
-              <p className="hero-description">
-                Roleza helps you discover relevant opportunities,
-                choose the correct resume, track applications,
-                and identify when human action is needed.
-              </p>
-
-              <div className="hero-actions">
-                <button
-                  className="primary-button"
-                  onClick={() => setShowPreferences(true)}
-                >
-                  Start Job Search
-                </button>
-
-                <button
-                  className="secondary-button"
-                  onClick={openApplications}
-                >
-                  View Applications
-                </button>
-              </div>
-            </section>
-
-            <section className="dashboard-card">
-              <div className="card-header">
-                <div>
-                  <p className="card-label">
-                    TODAY&apos;S OVERVIEW
-                  </p>
-                  <h2>Your job search</h2>
-                </div>
-
-                <span className="status-badge">
-                  Active
-                </span>
-              </div>
-
-              <div className="stats-grid">
-                <div className="stat-card">
-                  <span>Jobs found</span>
-                  <strong>{jobs.length}</strong>
-                </div>
-
-                <div className="stat-card">
-                  <span>Applications</span>
-                  <strong>{applications.length}</strong>
-                </div>
-
-                <div className="stat-card">
-                  <span>Needs review</span>
-                  <strong>{humanReviewCount}</strong>
-                </div>
-              </div>
-
-              <div className="activity-box">
-                <div className="activity-icon">✓</div>
-
-                <div>
-                  <h3>Roleza is ready</h3>
-                  <p>
-                    Set your preferences to begin finding matching jobs.
-                  </p>
-                </div>
-              </div>
-            </section>
-          </main>
-
-          <section className="features">
-            <article>
-              <span className="feature-number">01</span>
-              <h3>Smart matching</h3>
-              <p>
-                Find roles based on your skills, location,
-                experience, and goals.
-              </p>
-            </article>
-
-            <article>
-              <span className="feature-number">02</span>
-              <h3>Resume selection</h3>
-              <p>
-                Automatically use the right resume for AI or BDM roles.
-              </p>
-            </article>
-
-            <article>
-              <span className="feature-number">03</span>
-              <h3>Application tracking</h3>
-              <p>
-                See what was applied to and where your attention is required.
-              </p>
-            </article>
-          </section>
-        </>
-      )}
-
-      {currentPage === "results" && (
-        <main className="results-page">
-          <div className="results-header">
-            <div>
-              <p className="eyebrow">
-                MATCHED OPPORTUNITIES
-              </p>
-
-              <h1>Jobs selected for you</h1>
-
-              <p>
-                Showing{" "}
-                {getDisplayRoleType(preferences.roleType)}{" "}
-                roles for {preferences.location}
-                {preferences.remoteOnly
-                  ? " with remote-only filtering."
-                  : "."}
-              </p>
+        <main className="home-page">
+          <section className="hero-section">
+            <div className="hero-badge">
+              Your AI job assistant
             </div>
 
-            <div className="results-header-actions">
+            <h1>
+              Find the right jobs.
+              <br />
+              Apply with confidence.
+            </h1>
+
+            <p>
+              Roleza searches live job
+              sources, filters for your
+              preferences, chooses the
+              correct resume and helps
+              you focus on the best
+              opportunities first.
+            </p>
+
+            <div className="hero-actions">
               <button
-                className="secondary-button"
-                onClick={openApplications}
+                className="primary-button"
+                onClick={findJobs}
+                disabled={loadingJobs}
               >
-                View applications
+                {loadingJobs
+                  ? "Searching..."
+                  : "Find jobs"}
               </button>
 
               <button
                 className="secondary-button"
-                onClick={() => setShowPreferences(true)}
+                onClick={() =>
+                  setShowPreferences(true)
+                }
               >
                 Edit preferences
               </button>
             </div>
-          </div>
 
-          {applicationsError && (
-            <div className="results-message error-message">
-              <h2>Application error</h2>
-              <p>{applicationsError}</p>
-            </div>
-          )}
-
-          {loadingJobs && (
-            <div className="results-message">
-              <h2>Searching live jobs...</h2>
-              <p>
-                Roleza is loading current opportunities from live sources.
+            {jobsError && (
+              <p className="error-text">
+                {jobsError}
               </p>
-            </div>
-          )}
-
-          {jobsError && (
-            <div className="results-message error-message">
-              <h2>Could not load jobs</h2>
-              <p>{jobsError}</p>
-
-              <button
-                className="primary-button retry-button"
-                onClick={searchJobs}
-              >
-                Try again
-              </button>
-            </div>
-          )}
-
-          {!loadingJobs &&
-            !jobsError &&
-            jobs.length === 0 && (
-              <div className="results-message">
-                <h2>No matching live jobs found</h2>
-
-                <p>
-                  Try Remote worldwide or another location.
-                  Some remote jobs are restricted to specific regions.
-                </p>
-              </div>
             )}
+          </section>
 
-          {!loadingJobs &&
-            !jobsError &&
-            jobs.length > 0 && (
-              <div className="results-grid">
-                {jobs.map((job) => {
-                  const applied = isJobApplied(job.id);
-                  const applying = applyingJobId === job.id;
+          <section className="overview-card">
+            <div>
+              <span className="overview-label">
+                Jobs found
+              </span>
 
-                  return (
-                    <article
-                      className="job-card"
-                      key={job.id}
-                    >
-                      <div className="job-card-top">
-                        <div>
-                          <span className="job-source">
-                            {job.source}
-                          </span>
+              <strong>
+                {jobs.length}
+              </strong>
+            </div>
 
-                          <h2>{job.title}</h2>
-                          <p>{job.company}</p>
-                        </div>
+            <div>
+              <span className="overview-label">
+                Applications
+              </span>
 
-                        <span className="fresh-badge">
-                          {job.posted}
-                        </span>
-                      </div>
+              <strong>
+                {applications.length}
+              </strong>
+            </div>
 
-                      <div className="job-meta">
-                        <span>{job.work_mode}</span>
-                        <span>{job.location}</span>
-                        <span>{job.experience}</span>
+            <div>
+              <span className="overview-label">
+                Needs review
+              </span>
 
-                        <span>
-                          {getDisplayRoleType(
-                            job.role_type
-                          )}
-                        </span>
-                      </div>
+              <strong>
+                {reviewCount}
+              </strong>
+            </div>
+          </section>
 
-                      <div
-                        className={`eligibility-box ${getEligibilityClass(
-                          job.remote_eligibility
-                        )}`}
-                      >
-                        <span>Remote eligibility</span>
+          <section className="feature-grid">
+            <article className="feature-card">
+              <span className="feature-icon">
+                01
+              </span>
 
-                        <strong>
-                          {getEligibilityLabel(
-                            job.remote_eligibility
-                          )}
-                        </strong>
-                      </div>
+              <h3>
+                Live job search
+              </h3>
 
-                      <p className="job-description">
-                        {job.description}
-                      </p>
+              <p>
+                Search across
+                Arbeitnow, Remote OK,
+                Greenhouse and your
+                company watchlist.
+              </p>
+            </article>
 
-                      <div className="resume-row">
-                        <span>Resume selected</span>
+            <article className="feature-card">
+              <span className="feature-icon">
+                02
+              </span>
 
-                        <div>
-                          <strong>
-                            {job.resume_filename ||
-                              getResumeLabel(job)}
-                          </strong>
+              <h3>
+                Smart matching
+              </h3>
 
-                          <a
-                            href={getResumeDownloadUrl(
-                              job.role_type
-                            )}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="resume-link"
-                          >
-                            Open resume
-                          </a>
-                        </div>
-                      </div>
+              <p>
+                Roleza scores jobs
+                based on role fit,
+                location, experience
+                and freshness.
+              </p>
+            </article>
 
-                      {job.requires_human_review && (
-                        <div className="review-warning">
-                          <strong>
-                            Human review required
-                          </strong>
+            <article className="feature-card">
+              <span className="feature-icon">
+                03
+              </span>
 
-                          <span>
-                            Roleza could not confirm whether this
-                            remote role accepts applicants from your
-                            selected location.
-                          </span>
-                        </div>
-                      )}
+              <h3>
+                Application assistant
+              </h3>
 
-                      <div className="job-actions">
-                        <a
-                          href={job.job_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="secondary-button resume-action-button"
-                        >
-                          Review job
-                        </a>
-
-                        <button
-                          className={
-                            applied
-                              ? "secondary-button applied-button"
-                              : "primary-button"
-                          }
-                          onClick={() => handleApply(job)}
-                          disabled={applied || applying}
-                        >
-                          {applied
-                            ? "Added to applications"
-                            : applying
-                              ? "Saving..."
-                              : "Apply"}
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
+              <p>
+                Inspect application
+                forms, detect blockers
+                and identify questions
+                that need your input.
+              </p>
+            </article>
+          </section>
         </main>
       )}
 
-      {currentPage === "applications" && (
-        <main className="applications-page">
-          <div className="results-header">
+      {currentPage === "results" && (
+        <main className="results-page">
+          <section className="results-header">
             <div>
-              <p className="eyebrow">
-                APPLICATION TRACKER
-              </p>
+              <button
+                className="back-button"
+                onClick={() =>
+                  setCurrentPage("home")
+                }
+              >
+                ← Back
+              </button>
 
-              <h1>Your applications</h1>
+              <h1>
+                Recommended jobs
+              </h1>
 
               <p>
-                Track jobs, selected resumes,
-                and applications requiring your attention.
+                {jobs.length} eligible
+                jobs found ·{" "}
+                {highPriorityCount} high
+                priority
               </p>
             </div>
 
             <button
               className="primary-button"
-              onClick={() => setShowPreferences(true)}
+              onClick={findJobs}
+              disabled={loadingJobs}
             >
-              Find more jobs
+              {loadingJobs
+                ? "Refreshing..."
+                : "Refresh jobs"}
             </button>
-          </div>
+          </section>
 
-          {loadingApplications && (
-            <div className="results-message">
-              <h2>Loading applications...</h2>
+          {jobs.length === 0 && (
+            <section className="empty-state">
+              <h2>
+                No strong matches
+                right now
+              </h2>
 
               <p>
-                Roleza is retrieving your saved application tracker.
+                Roleza did not find
+                an eligible job for
+                your current
+                preferences.
               </p>
-            </div>
-          )}
-
-          {applicationsError && (
-            <div className="results-message error-message">
-              <h2>Could not load applications</h2>
-              <p>{applicationsError}</p>
 
               <button
-                className="primary-button retry-button"
-                onClick={loadApplications}
+                className="secondary-button"
+                onClick={() =>
+                  setShowPreferences(true)
+                }
               >
-                Try again
+                Change preferences
               </button>
-            </div>
+            </section>
           )}
 
-          {!loadingApplications &&
-            !applicationsError &&
-            applications.length === 0 && (
-              <div className="results-message">
-                <h2>No applications yet</h2>
+          <section className="jobs-list">
+            {jobs.map((job) => {
+              const alreadyApplied =
+                appliedJobIds.has(
+                  job.id
+                );
 
-                <p>
-                  Search for jobs and press Apply to add
-                  opportunities to this tracker.
-                </p>
-
-                <button
-                  className="primary-button empty-state-button"
-                  onClick={() => setShowPreferences(true)}
+              return (
+                <article
+                  className="job-card"
+                  key={job.id}
                 >
-                  Start job search
-                </button>
-              </div>
-            )}
+                  <div className="job-top-row">
+                    <div>
+                      <span className="source-badge">
+                        {job.source}
+                      </span>
 
-          {!loadingApplications &&
-            !applicationsError &&
-            applications.length > 0 && (
-              <div className="applications-list">
-                {applications.map((application) => (
-                  <article
-                    className="application-card"
-                    key={application.id}
-                  >
-                    <div className="application-main">
-                      <div>
-                        <span className="job-source">
-                          {application.source}
+                      <h2>
+                        {job.title}
+                      </h2>
+
+                      <p className="company-name">
+                        {job.company}
+                      </p>
+                    </div>
+
+                    <div className="job-score-panel">
+                      <div
+                        className={`fit-score ${getScoreClass(
+                          job.fit_score
+                        )}`}
+                      >
+                        <strong>
+                          {job.fit_score ?? 0}%
+                        </strong>
+
+                        <span>
+                          Fit
                         </span>
-
-                        <h2>
-                          {application.title}
-                        </h2>
-
-                        <p>
-                          {application.company}
-                        </p>
                       </div>
 
                       <span
-                        className={
-                          application.requires_human_review
-                            ? "application-status review-status"
-                            : "application-status ready-status"
-                        }
+                        className={`priority-badge ${getPriorityClass(
+                          job.priority
+                        )}`}
                       >
-                        {application.status}
+                        {job.priority || "Low"}{" "}
+                        priority
                       </span>
                     </div>
+                  </div>
 
-                    <div className="job-meta">
-                      <span>
-                        {application.work_mode}
-                      </span>
+                  <div className="job-meta">
+                    <span>
+                      📍 {job.location}
+                    </span>
 
-                      <span>
-                        {application.location}
-                      </span>
+                    <span>
+                      💻 {job.work_mode}
+                    </span>
 
-                      <span>
-                        {getDisplayRoleType(
-                          application.role_type
-                        )}
-                      </span>
-                    </div>
+                    <span>
+                      🧭{" "}
+                      {getDisplayRoleType(
+                        job.role_type
+                      )}
+                    </span>
 
+                    <span>
+                      🕒{" "}
+                      {job.freshness
+                        || job.posted}
+                    </span>
+                  </div>
+
+                  <div
+                    className={`eligibility-box ${getEligibilityClass(
+                      job
+                    )}`}
+                  >
+                    <span>
+                      Remote eligibility
+                    </span>
+
+                    <strong>
+                      {getEligibilityLabel(
+                        job
+                      )}
+                    </strong>
+                  </div>
+
+                  {job.application_recommendation && (
                     <div
-                      className={`eligibility-box ${getEligibilityClass(
-                        application.remote_eligibility
+                      className={`recommendation-box ${getRecommendationClass(
+                        job.application_recommendation
                       )}`}
                     >
-                      <span>Remote eligibility</span>
+                      <span>
+                        Roleza recommendation
+                      </span>
 
                       <strong>
-                        {getEligibilityLabel(
-                          application.remote_eligibility
-                        )}
+                        {
+                          job.application_recommendation
+                        }
                       </strong>
                     </div>
+                  )}
 
-                    <div className="application-details">
-                      <div>
-                        <span>Resume</span>
+                  {job.matched_skills &&
+                    job.matched_skills.length > 0 && (
+                      <div className="matched-skills-section">
+                        <span className="match-title">
+                          Matched skills
+                        </span>
 
-                        <strong>
-                          {application.resume}
-                        </strong>
-
-                        <a
-                          href={getResumeDownloadUrl(
-                            application.role_type
+                        <div className="reason-tags">
+                          {job.matched_skills.map(
+                            (skill) => (
+                              <span
+                                className="skill-tag"
+                                key={`${job.id}-${skill}`}
+                              >
+                                {skill}
+                              </span>
+                            )
                           )}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="resume-link"
-                        >
-                          Open resume
-                        </a>
+                        </div>
                       </div>
+                    )}
 
-                      <div>
-                        <span>Added</span>
+                  {job.fit_reasons &&
+                    job.fit_reasons.length > 0 && (
+                      <div className="match-reasons">
+                        <span className="match-title">
+                          Why Roleza scored this job
+                        </span>
 
-                        <strong>
-                          {new Date(
-                            application.applied_at
-                          ).toLocaleString()}
-                        </strong>
+                        <div className="reason-tags">
+                          {job.fit_reasons.map(
+                            (
+                              reason,
+                              index
+                            ) => (
+                              <span
+                                className="reason-tag"
+                                key={`${job.id}-${index}`}
+                              >
+                                {reason}
+                              </span>
+                            )
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
-                    <div className="job-actions">
+                  <p className="job-description">
+                    {job.description}
+                  </p>
+
+                  <div className="resume-row">
+                    <div>
+                      <span>
+                        Resume:
+                      </span>
+
+                      <strong>
+                        {job.resume_filename
+                          || getResumeLabel(job)}
+                      </strong>
+
                       <a
-                        href={application.job_url || "#"}
+                        className="resume-link"
+                        href={getResumeDownloadUrl(
+                          job.role_type
+                        )}
                         target="_blank"
                         rel="noreferrer"
+                      >
+                        Open resume
+                      </a>
+                    </div>
+                  </div>
+
+                  {job.requires_human_review && (
+                    <div className="review-warning">
+                      ⚠ Remote eligibility
+                      or application
+                      requirements need
+                      human review.
+                    </div>
+                  )}
+
+                  <div className="job-actions">
+                    {job.job_url && (
+                      <a
                         className="secondary-button resume-action-button"
+                        href={job.job_url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Review job
+                      </a>
+                    )}
+
+                    {job.job_url && (
+                      <button
+                        className="inspect-button"
+                        onClick={() =>
+                          inspectApplication(
+                            job
+                          )
+                        }
+                      >
+                        Inspect application
+                      </button>
+                    )}
+
+                    <button
+                      className="primary-button"
+                      disabled={alreadyApplied}
+                      onClick={() =>
+                        handleApply(job)
+                      }
+                    >
+                      {alreadyApplied
+                        ? "In tracker"
+                        : "Add to tracker"}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </section>
+        </main>
+      )}
+
+      {currentPage === "applications" && (
+        <main className="applications-page">
+          <section className="results-header">
+            <div>
+              <button
+                className="back-button"
+                onClick={() =>
+                  setCurrentPage("home")
+                }
+              >
+                ← Back
+              </button>
+
+              <h1>
+                Applications
+              </h1>
+
+              <p>
+                {applications.length} jobs
+                in your tracker
+              </p>
+            </div>
+
+            <button
+              className="primary-button"
+              onClick={findJobs}
+            >
+              Find more jobs
+            </button>
+          </section>
+
+          {applications.length === 0 && (
+            <section className="empty-state">
+              <h2>
+                No applications yet
+              </h2>
+
+              <p>
+                Jobs you choose from
+                Roleza will appear here.
+              </p>
+            </section>
+          )}
+
+          <section className="applications-list">
+            {applications.map(
+              (application) => (
+                <article
+                  className="application-card"
+                  key={application.id}
+                >
+                  <div>
+                    <span className="source-badge">
+                      {application.source}
+                    </span>
+
+                    <h2>
+                      {application.title}
+                    </h2>
+
+                    <p className="company-name">
+                      {application.company}
+                    </p>
+                  </div>
+
+                  <div className="job-meta">
+                    <span>
+                      📍{" "}
+                      {application.location}
+                    </span>
+
+                    <span>
+                      🧭{" "}
+                      {getDisplayRoleType(
+                        application.role_type
+                      )}
+                    </span>
+
+                    <span>
+                      🌍{" "}
+                      {
+                        application.remote_eligibility
+                      }
+                    </span>
+                  </div>
+
+                  <div className="resume-row">
+                    <div>
+                      <span>
+                        Resume:
+                      </span>
+
+                      <strong>
+                        {
+                          application.resume
+                        }
+                      </strong>
+
+                      <a
+                        className="resume-link"
+                        href={getResumeDownloadUrl(
+                          application.role_type
+                        )}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open resume
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="application-status-row">
+                    <span>
+                      Status
+                    </span>
+
+                    <strong>
+                      {application.status}
+                    </strong>
+                  </div>
+
+                  <p className="application-date">
+                    Added:{" "}
+                    {
+                      application.applied_at
+                    }
+                  </p>
+
+                  {application.job_url && (
+                    <div className="job-actions">
+                      <a
+                        className="secondary-button resume-action-button"
+                        href={
+                          application.job_url
+                        }
+                        target="_blank"
+                        rel="noreferrer"
                       >
                         Review application
                       </a>
 
-                      <a
-                        href={application.job_url || "#"}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="primary-button resume-action-button"
+                      <button
+                        className="inspect-button"
+                        onClick={() =>
+                          inspectApplication({
+                            ...application,
+                            job_url:
+                              application.job_url,
+                          })
+                        }
                       >
-                        Continue application
-                      </a>
+                        Inspect application
+                      </button>
                     </div>
-                  </article>
-                ))}
-              </div>
+                  )}
+                </article>
+              )
             )}
+          </section>
         </main>
       )}
 
       {showPreferences && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setShowPreferences(false)}
-        >
-          <div
-            className="preferences-modal"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <div className="modal-overlay">
+          <div className="preferences-modal">
             <div className="modal-header">
               <div>
-                <p className="card-label">
-                  SEARCH PREFERENCES
-                </p>
+                <h2>
+                  Job preferences
+                </h2>
 
-                <h2>Find matching jobs</h2>
+                <p>
+                  Tell Roleza what
+                  opportunities to
+                  prioritize.
+                </p>
               </div>
 
               <button
                 className="close-button"
-                onClick={() => setShowPreferences(false)}
-                aria-label="Close preferences"
+                onClick={() =>
+                  setShowPreferences(false)
+                }
               >
                 ×
               </button>
             </div>
 
-            <form
-              className="preferences-form"
-              onSubmit={handleSubmit}
-            >
-              <label>
-                Role type
+            <label>
+              Role type
 
-                <select
-                  name="roleType"
-                  value={preferences.roleType}
-                  onChange={handleChange}
-                >
-                  <option value="AI">
-                    AI Engineer
-                  </option>
+              <select
+                value={
+                  preferences.roleType
+                }
+                onChange={(event) =>
+                  setPreferences(
+                    (previous) => ({
+                      ...previous,
+                      roleType:
+                        event.target.value,
+                    })
+                  )
+                }
+              >
+                <option value="AI">
+                  AI Engineer
+                </option>
 
-                  <option value="US IT Recruiter">
-                    BDM Roles
-                  </option>
+                <option value="US IT Recruiter">
+                  BDM Roles
+                </option>
 
-                  <option value="Both">
-                    AI and BDM Roles
-                  </option>
-                </select>
-              </label>
+                <option value="Both">
+                  AI and BDM Roles
+                </option>
+              </select>
+            </label>
 
-              <label>
-                Preferred location
+            <label>
+              Location
 
-                <select
-                  name="location"
-                  value={preferences.location}
-                  onChange={handleChange}
-                >
-                  <option value="India">
-                    India
-                  </option>
+              <select
+                value={
+                  preferences.location
+                }
+                onChange={(event) =>
+                  setPreferences(
+                    (previous) => ({
+                      ...previous,
+                      location:
+                        event.target.value,
+                    })
+                  )
+                }
+              >
+                <option value="India">
+                  India
+                </option>
 
-                  <option value="Remote worldwide">
-                    Remote worldwide
-                  </option>
+                <option value="Remote worldwide">
+                  Remote worldwide
+                </option>
 
-                  <option value="Singapore">
-                    Singapore
-                  </option>
+                <option value="Singapore">
+                  Singapore
+                </option>
 
-                  <option value="Dubai">
-                    Dubai
-                  </option>
+                <option value="Dubai">
+                  Dubai
+                </option>
 
-                  <option value="Thailand">
-                    Thailand
-                  </option>
-                </select>
-              </label>
+                <option value="Thailand">
+                  Thailand
+                </option>
+              </select>
+            </label>
 
-              <label>
-                Resume selection
+            <label>
+              Resume preference
 
-                <select
-                  name="resume"
-                  value={preferences.resume}
-                  onChange={handleChange}
-                >
-                  <option value="auto">
-                    Choose automatically
-                  </option>
+              <select
+                value={
+                  preferences.resume
+                }
+                onChange={(event) =>
+                  setPreferences(
+                    (previous) => ({
+                      ...previous,
+                      resume:
+                        event.target.value,
+                    })
+                  )
+                }
+              >
+                <option value="auto">
+                  Choose automatically
+                </option>
 
-                  <option value="ai">
-                    AI resume
-                  </option>
+                <option value="ai">
+                  AI Resume
+                </option>
 
-                  <option value="recruitment">
-                    BDM resume
-                  </option>
-                </select>
-              </label>
+                <option value="bdm">
+                  BDM Resume
+                </option>
+              </select>
+            </label>
 
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  name="remoteOnly"
-                  checked={preferences.remoteOnly}
-                  onChange={handleChange}
-                />
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={
+                  preferences.remoteOnly
+                }
+                onChange={(event) =>
+                  setPreferences(
+                    (previous) => ({
+                      ...previous,
+                      remoteOnly:
+                        event.target.checked,
+                    })
+                  )
+                }
+              />
 
-                <span>
-                  <strong>
-                    Remote jobs only
-                  </strong>
+              Remote jobs only
+            </label>
 
-                  <small>
-                    Exclude office and hybrid opportunities.
-                  </small>
+            <div className="modal-actions">
+              <button
+                className="secondary-button"
+                onClick={() =>
+                  setShowPreferences(false)
+                }
+              >
+                Cancel
+              </button>
+
+              <button
+                className="primary-button"
+                onClick={() => {
+                  setShowPreferences(false);
+                  findJobs();
+                }}
+              >
+                Save & find jobs
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {inspectionJob && (
+        <div className="modal-overlay">
+          <div className="inspection-modal">
+            <div className="modal-header">
+              <div>
+                <span className="inspection-eyebrow">
+                  Application inspection
                 </span>
-              </label>
 
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => setShowPreferences(false)}
-                >
-                  Cancel
-                </button>
+                <h2>
+                  {inspectionJob.title}
+                </h2>
 
-                <button
-                  type="submit"
-                  className="primary-button"
-                >
-                  Start Search
-                </button>
+                <p>
+                  {inspectionJob.company}
+                </p>
               </div>
-            </form>
+
+              <button
+                className="close-button"
+                onClick={
+                  closeInspection
+                }
+              >
+                ×
+              </button>
+            </div>
+
+            {inspectionLoading && (
+              <div className="inspection-loading">
+                <div className="inspection-spinner" />
+
+                <h3>
+                  Inspecting application…
+                </h3>
+
+                <p>
+                  Roleza is opening the
+                  application page and
+                  checking its fields.
+                </p>
+              </div>
+            )}
+
+            {inspectionError && (
+              <div className="inspection-error">
+                <strong>
+                  Inspection failed
+                </strong>
+
+                <p>
+                  {inspectionError}
+                </p>
+              </div>
+            )}
+
+            {!inspectionLoading &&
+              inspectionSummary && (
+                <>
+                  <div className="inspection-status">
+                    <div>
+                      <span>
+                        Recommended action
+                      </span>
+
+                      <strong>
+                        {
+                          inspectionData.recommended_action
+                        }
+                      </strong>
+                    </div>
+
+                    <span
+                      className={
+                        inspectionSummary
+                          .hard_blockers
+                          .length > 0
+                          ? "inspection-status-bad"
+                          : "inspection-status-good"
+                      }
+                    >
+                      {
+                        inspectionSummary
+                          .hard_blockers
+                          .length > 0
+                          ? "Human action needed"
+                          : "Ready to prepare"
+                      }
+                    </span>
+                  </div>
+
+                  <div className="inspection-stats">
+                    <div>
+                      <strong>
+                        {
+                          inspectionSummary
+                            .counts.total
+                        }
+                      </strong>
+
+                      <span>
+                        Fields
+                      </span>
+                    </div>
+
+                    <div>
+                      <strong>
+                        {
+                          inspectionSummary
+                            .counts.safe
+                        }
+                      </strong>
+
+                      <span>
+                        Safe
+                      </span>
+                    </div>
+
+                    <div>
+                      <strong>
+                        {
+                          inspectionSummary
+                            .counts.draftable
+                        }
+                      </strong>
+
+                      <span>
+                        AI draftable
+                      </span>
+                    </div>
+
+                    <div>
+                      <strong>
+                        {
+                          inspectionSummary
+                            .counts.user_decisions
+                        }
+                      </strong>
+
+                      <span>
+                        Your decisions
+                      </span>
+                    </div>
+
+                    <div>
+                      <strong>
+                        {
+                          inspectionSummary
+                            .counts.personal_questions
+                        }
+                      </strong>
+
+                      <span>
+                        Personal
+                      </span>
+                    </div>
+                  </div>
+
+                  {inspectionSummary
+                    .hard_blockers
+                    .length > 0 && (
+                    <InspectionSection
+                      title="Hard blockers"
+                      subtitle="Roleza will stop here instead of trying to bypass these."
+                      items={
+                        inspectionSummary
+                          .hard_blockers
+                      }
+                      type="danger"
+                      simple
+                    />
+                  )}
+
+                  {inspectionSummary
+                    .draftable_questions
+                    .length > 0 && (
+                    <InspectionSection
+                      title="AI-draftable questions"
+                      subtitle="Roleza can later draft answers from your resume and project history."
+                      items={
+                        inspectionSummary
+                          .draftable_questions
+                      }
+                      formatItem={
+                        shortenQuestion
+                      }
+                      type="draft"
+                    />
+                  )}
+
+                  {inspectionSummary
+                    .user_decisions
+                    .length > 0 && (
+                    <InspectionSection
+                      title="Needs your decision"
+                      subtitle="Roleza will not guess these answers."
+                      items={
+                        inspectionSummary
+                          .user_decisions
+                      }
+                      formatItem={
+                        shortenQuestion
+                      }
+                      type="warning"
+                    />
+                  )}
+
+                  {inspectionSummary
+                    .personal_questions
+                    .length > 0 && (
+                    <InspectionSection
+                      title="Personal questions"
+                      subtitle="Roleza will not guess demographic or personal self-identification answers."
+                      items={
+                        inspectionSummary
+                          .personal_questions
+                      }
+                      formatItem={
+                        shortenQuestion
+                      }
+                      type="personal"
+                    />
+                  )}
+
+                  {inspectionSummary
+                    .unknown_required_fields
+                    .length > 0 && (
+                    <InspectionSection
+                      title="Unknown required fields"
+                      subtitle="These still need classification before Roleza should automate them."
+                      items={
+                        inspectionSummary
+                          .unknown_required_fields
+                      }
+                      formatItem={
+                        shortenQuestion
+                      }
+                      type="warning"
+                    />
+                  )}
+
+                  <div className="inspection-actions">
+                    <button
+                      className="secondary-button"
+                      onClick={
+                        closeInspection
+                      }
+                    >
+                      Close
+                    </button>
+
+                    <a
+                      className="secondary-button resume-action-button"
+                      href={
+                        inspectionJob.job_url
+                      }
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open application
+                    </a>
+
+                    <button
+                      className="primary-button"
+                      disabled={
+                        !inspectionSummary
+                          .can_prepare_application
+                      }
+                      title={
+                        inspectionSummary
+                          .can_prepare_application
+                          ? ""
+                          : "Resolve the hard blocker before Roleza can prepare this application."
+                      }
+                    >
+                      Prepare application
+                    </button>
+                  </div>
+
+                  {!inspectionSummary
+                    .can_prepare_application && (
+                    <p className="inspection-note">
+                      Prepare application is
+                      disabled because Roleza
+                      detected a CAPTCHA or
+                      login blocker.
+                    </p>
+                  )}
+                </>
+              )}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function InspectionSection({
+  title,
+  subtitle,
+  items,
+  formatItem,
+  type,
+  simple = false,
+}) {
+  return (
+    <section
+      className={`inspection-section inspection-${type}`}
+    >
+      <div className="inspection-section-header">
+        <div>
+          <h3>
+            {title}
+          </h3>
+
+          <p>
+            {subtitle}
+          </p>
+        </div>
+
+        <strong>
+          {items.length}
+        </strong>
+      </div>
+
+      <div className="inspection-items">
+        {items.map(
+          (item, index) => {
+            const text = simple
+              ? item
+              : formatItem
+                ? formatItem(
+                    item.context
+                  )
+                : item.context;
+
+            return (
+              <div
+                className="inspection-item"
+                key={`${title}-${index}`}
+              >
+                <span>
+                  {text}
+                </span>
+
+                {!simple &&
+                  item.required && (
+                    <small>
+                      Required
+                    </small>
+                  )}
+              </div>
+            );
+          }
+        )}
+      </div>
+    </section>
   );
 }
 
