@@ -1,4 +1,5 @@
 from datetime import datetime
+from hashlib import sha256
 from pathlib import Path
 import sqlite3
 
@@ -6,8 +7,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from requests import RequestException
 
 from app.routes.browser import router as browser_router
+from app.services.job_sources import fetch_arbeitnow_jobs
 
 
 app = FastAPI(title="Roleza API")
@@ -47,86 +50,6 @@ BLOCKED_COMPANIES = [
 ]
 
 
-JOBS = [
-    {
-        "id": 1,
-        "role_type": "AI",
-        "title": "Junior AI Engineer",
-        "company": "Nova Intelligence",
-        "source": "Company career page",
-        "posted": "Posted today",
-        "location": "India",
-        "work_mode": "Remote",
-        "experience": "Entry level",
-        "description": (
-            "Build AI-powered workflows, work with language models, "
-            "and support production automation systems."
-        ),
-        "resume": "AI Resume",
-        "status": "Ready to apply",
-        "requires_human_review": False,
-        "job_url": "https://example.com/jobs/roleza-ai-1",
-    },
-    {
-        "id": 2,
-        "role_type": "AI",
-        "title": "AI Automation Associate",
-        "company": "FlowForge Labs",
-        "source": "Startup job board",
-        "posted": "Posted 3 hours ago",
-        "location": "Worldwide",
-        "work_mode": "Remote",
-        "experience": "Fresher friendly",
-        "description": (
-            "Help create internal AI agents, test prompts, document workflows, "
-            "and improve automation quality."
-        ),
-        "resume": "AI Resume",
-        "status": "Human review needed",
-        "requires_human_review": True,
-        "job_url": "https://example.com/jobs/roleza-ai-2",
-    },
-    {
-        "id": 3,
-        "role_type": "US IT Recruiter",
-        "title": "US IT Recruiter",
-        "company": "TalentBridge Solutions",
-        "source": "Company career page",
-        "posted": "Posted today",
-        "location": "India",
-        "work_mode": "Remote",
-        "experience": "3+ years",
-        "description": (
-            "Manage full-cycle US IT hiring, source technical candidates, "
-            "and coordinate interviews with US-based clients."
-        ),
-        "resume": "BDM Resume",
-        "status": "Ready to apply",
-        "requires_human_review": False,
-        "job_url": "https://example.com/jobs/roleza-bdm-1",
-    },
-    {
-        "id": 4,
-        "role_type": "US IT Recruiter",
-        "title": "Senior Technical Recruiter",
-        "company": "Akkodis India",
-        "source": "Company career page",
-        "posted": "Posted 2 hours ago",
-        "location": "India",
-        "work_mode": "Remote",
-        "experience": "4+ years",
-        "description": (
-            "Recruit technical professionals for enterprise clients "
-            "across the United States."
-        ),
-        "resume": "BDM Resume",
-        "status": "Ready to apply",
-        "requires_human_review": False,
-        "job_url": "https://example.com/jobs/blocked-company",
-    },
-]
-
-
 class ApplicationCreate(BaseModel):
     job_id: int
     title: str
@@ -139,6 +62,7 @@ class ApplicationCreate(BaseModel):
     status: str
     requires_human_review: bool = False
     job_url: str = ""
+    remote_eligibility: str = "Unknown"
 
 
 class ApplicationUpdate(BaseModel):
@@ -168,7 +92,8 @@ def initialize_database():
                 status TEXT NOT NULL,
                 requires_human_review INTEGER NOT NULL DEFAULT 0,
                 applied_at TEXT NOT NULL,
-                job_url TEXT NOT NULL DEFAULT ''
+                job_url TEXT NOT NULL DEFAULT '',
+                remote_eligibility TEXT NOT NULL DEFAULT 'Unknown'
             )
             """
         )
@@ -192,6 +117,14 @@ def initialize_database():
                 """
             )
 
+        if "remote_eligibility" not in column_names:
+            connection.execute(
+                """
+                ALTER TABLE applications
+                ADD COLUMN remote_eligibility TEXT NOT NULL DEFAULT 'Unknown'
+                """
+            )
+
         connection.commit()
 
 
@@ -212,11 +145,17 @@ def application_row_to_dict(row):
         ),
         "applied_at": row["applied_at"],
         "job_url": row["job_url"],
+        "remote_eligibility": row[
+            "remote_eligibility"
+        ],
     }
 
 
 def is_blocked_company(company_name: str) -> bool:
-    normalized_name = company_name.strip().lower()
+    normalized_name = (
+        company_name
+        or ""
+    ).strip().lower()
 
     return any(
         blocked_company in normalized_name
@@ -238,6 +177,80 @@ def get_resume_for_role(role_type: str):
     }
 
 
+def create_stable_job_id(external_id: str) -> int:
+    digest = sha256(
+        external_id.encode("utf-8")
+    ).digest()
+
+    return int.from_bytes(
+        digest[:8],
+        byteorder="big",
+    ) & 0x7FFFFFFFFFFFFFFF
+
+
+def location_matches(
+    job_location: str,
+    requested_location: str,
+    remote_eligibility: str,
+) -> bool:
+    job_location_lower = (
+        job_location
+        or ""
+    ).lower()
+
+    requested_lower = (
+        requested_location
+        or ""
+    ).lower()
+
+    eligibility = (
+        remote_eligibility
+        or "Unknown"
+    )
+
+    if requested_location in [
+        "Remote worldwide",
+        "Worldwide",
+    ]:
+        return True
+
+    if requested_location == "India":
+        return eligibility in [
+            "Worldwide",
+            "India",
+            "Unknown",
+        ]
+
+    if requested_location == "Singapore":
+        return (
+            "singapore" in job_location_lower
+            or eligibility == "Worldwide"
+            or eligibility == "Unknown"
+        )
+
+    if requested_location == "Dubai":
+        return (
+            "dubai" in job_location_lower
+            or "uae" in job_location_lower
+            or "united arab emirates"
+            in job_location_lower
+            or eligibility == "Worldwide"
+            or eligibility == "Unknown"
+        )
+
+    if requested_location == "Thailand":
+        return (
+            "thailand" in job_location_lower
+            or eligibility == "Worldwide"
+            or eligibility == "Unknown"
+        )
+
+    if requested_lower in job_location_lower:
+        return True
+
+    return eligibility == "Worldwide"
+
+
 initialize_database()
 
 
@@ -257,42 +270,88 @@ def health():
 
 @app.get("/jobs")
 def get_jobs(
-    role_type: str = Query(default="Both"),
-    location: str = Query(default="India"),
-    remote_only: bool = Query(default=True),
+    role_type: str = Query(
+        default="Both"
+    ),
+    location: str = Query(
+        default="India"
+    ),
+    remote_only: bool = Query(
+        default=True
+    ),
 ):
+    try:
+        live_jobs = fetch_arbeitnow_jobs(
+            pages=2
+        )
+
+    except RequestException as error:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Roleza could not reach the live "
+                "job source. Please try again."
+            ),
+        ) from error
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Roleza encountered an error "
+                "while loading live jobs."
+            ),
+        ) from error
+
     filtered_jobs = []
 
-    for job in JOBS:
-        if is_blocked_company(job["company"]):
+    for job in live_jobs:
+        company = job.get(
+            "company",
+            "",
+        )
+
+        if is_blocked_company(company):
             continue
 
         if (
             role_type != "Both"
-            and job["role_type"] != role_type
+            and job.get("role_type") != role_type
         ):
             continue
 
         if (
             remote_only
-            and job["work_mode"].lower() != "remote"
+            and not job.get("remote", False)
         ):
             continue
 
-        if location not in [
-            "Remote worldwide",
-            "Worldwide",
-        ]:
-            job_location = job["location"].lower()
-            requested_location = location.lower()
+        if not location_matches(
+            job_location=job.get(
+                "location",
+                "",
+            ),
+            requested_location=location,
+            remote_eligibility=job.get(
+                "remote_eligibility",
+                "Unknown",
+            ),
+        ):
+            continue
 
-            if (
-                requested_location not in job_location
-                and job_location != "worldwide"
-            ):
-                continue
+        external_id = job.get(
+            "external_id",
+            job.get("job_url", ""),
+        )
+
+        if not external_id:
+            continue
 
         job_copy = dict(job)
+
+        job_copy["id"] = create_stable_job_id(
+            external_id
+        )
 
         resume_info = get_resume_for_role(
             job_copy["role_type"]
@@ -307,10 +366,45 @@ def get_jobs(
                 resume_info["exists"]
             )
 
-        filtered_jobs.append(job_copy)
+            job_copy["resume"] = (
+                "BDM Resume"
+                if job_copy["role_type"]
+                == "US IT Recruiter"
+                else "AI Resume"
+            )
+
+        if (
+            job_copy.get("remote_eligibility")
+            == "Unknown"
+        ):
+            job_copy["requires_human_review"] = True
+
+        job_copy["status"] = (
+            "Needs human review"
+            if job_copy.get(
+                "requires_human_review",
+                False,
+            )
+            else "Ready to apply"
+        )
+
+        filtered_jobs.append(
+            job_copy
+        )
+
+    filtered_jobs.sort(
+        key=lambda item: (
+            item.get("created_at")
+            or 0
+        ),
+        reverse=True,
+    )
 
     return {
         "jobs": filtered_jobs,
+        "total": len(filtered_jobs),
+        "source": "Arbeitnow",
+        "live": True,
         "blocked_companies": BLOCKED_COMPANIES,
     }
 
@@ -322,18 +416,26 @@ def get_resumes():
             {
                 "role_type": "AI",
                 "display_name": "AI Resume",
-                "filename": RESUME_FILES["AI"].name,
-                "exists": RESUME_FILES["AI"].exists(),
+                "filename": (
+                    RESUME_FILES["AI"].name
+                ),
+                "exists": (
+                    RESUME_FILES["AI"].exists()
+                ),
             },
             {
                 "role_type": "US IT Recruiter",
                 "display_name": "BDM Resume",
-                "filename": RESUME_FILES[
-                    "US IT Recruiter"
-                ].name,
-                "exists": RESUME_FILES[
-                    "US IT Recruiter"
-                ].exists(),
+                "filename": (
+                    RESUME_FILES[
+                        "US IT Recruiter"
+                    ].name
+                ),
+                "exists": (
+                    RESUME_FILES[
+                        "US IT Recruiter"
+                    ].exists()
+                ),
             },
         ]
     }
@@ -347,7 +449,9 @@ def download_resume(role_type: str):
             detail="Resume type not found.",
         )
 
-    resume_path = RESUME_FILES[role_type]
+    resume_path = RESUME_FILES[
+        role_type
+    ]
 
     if not resume_path.exists():
         raise HTTPException(
@@ -388,7 +492,9 @@ def get_applications():
 def create_application(
     application: ApplicationCreate,
 ):
-    if is_blocked_company(application.company):
+    if is_blocked_company(
+        application.company
+    ):
         raise HTTPException(
             status_code=403,
             detail=(
@@ -405,8 +511,8 @@ def create_application(
         raise HTTPException(
             status_code=400,
             detail=(
-                "No resume is configured for "
-                "this role type."
+                "No resume is configured "
+                "for this role type."
             ),
         )
 
@@ -414,7 +520,8 @@ def create_application(
         raise HTTPException(
             status_code=500,
             detail=(
-                "The selected resume file is missing."
+                "The selected resume file "
+                "is missing."
             ),
         )
 
@@ -438,9 +545,12 @@ def create_application(
                     status,
                     requires_human_review,
                     applied_at,
-                    job_url
+                    job_url,
+                    remote_eligibility
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 """,
                 (
                     application.job_id,
@@ -457,12 +567,15 @@ def create_application(
                     ),
                     applied_at,
                     application.job_url,
+                    application.remote_eligibility,
                 ),
             )
 
             connection.commit()
 
-            application_id = cursor.lastrowid
+            application_id = (
+                cursor.lastrowid
+            )
 
     except sqlite3.IntegrityError as error:
         raise HTTPException(
@@ -490,11 +603,16 @@ def create_application(
             ),
             "applied_at": applied_at,
             "job_url": application.job_url,
+            "remote_eligibility": (
+                application.remote_eligibility
+            ),
         }
     }
 
 
-@app.patch("/applications/{application_id}")
+@app.patch(
+    "/applications/{application_id}"
+)
 def update_application(
     application_id: int,
     update: ApplicationUpdate,
@@ -506,7 +624,9 @@ def update_application(
             FROM applications
             WHERE id = ?
             """,
-            (application_id,),
+            (
+                application_id,
+            ),
         ).fetchone()
 
         if existing is None:
@@ -535,17 +655,23 @@ def update_application(
             FROM applications
             WHERE id = ?
             """,
-            (application_id,),
+            (
+                application_id,
+            ),
         ).fetchone()
 
     return {
-        "application": application_row_to_dict(
-            updated_row
+        "application": (
+            application_row_to_dict(
+                updated_row
+            )
         )
     }
 
 
-@app.delete("/applications/{application_id}")
+@app.delete(
+    "/applications/{application_id}"
+)
 def delete_application(
     application_id: int,
 ):
@@ -555,7 +681,9 @@ def delete_application(
             DELETE FROM applications
             WHERE id = ?
             """,
-            (application_id,),
+            (
+                application_id,
+            ),
         )
 
         connection.commit()
