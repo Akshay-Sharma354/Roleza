@@ -283,3 +283,121 @@ button {
     padding: 20px;
   }
 }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(3, 7, 18, 0.78);
+  backdrop-filter: blur(10px);
+}
+
+.preferences-modal {
+  width: min(100%, 560px);
+  padding: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 26px;
+  background: #12182b;
+  box-shadow: 0 35px 100px rgba(0, 0, 0, 0.55);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.8rem;
+}
+
+.close-button {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 1.6rem;
+  cursor: pointer;
+}
+
+.preferences-form {
+  display: grid;
+  gap: 20px;
+  margin-top: 28px;
+}
+
+.preferences-form label {
+  display: grid;
+  gap: 9px;
+  color: #dce2f1;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.preferences-form select {
+  width: 100%;
+  padding: 14px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 13px;
+  outline: none;
+  color: #f5f7fb;
+  background: #1a2137;
+}
+
+.preferences-form select:focus {
+  border-color: #7f8cff;
+}
+
+.checkbox-row {
+  grid-template-columns: auto 1fr;
+  align-items: flex-start;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+}
+
+.checkbox-row span {
+  display: grid;
+  gap: 4px;
+}
+
+.checkbox-row small {
+  color: #929db5;
+  font-weight: 400;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+@media (max-width: 600px) {
+  .preferences-modal {
+    padding: 22px;
+  }
+
+  .modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .modal-actions button {
+    width: 100%;
+  }
+}
