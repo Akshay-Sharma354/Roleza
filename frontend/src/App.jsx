@@ -62,12 +62,20 @@ function App() {
     return `${API_BASE_URL}/resumes/${encodeURIComponent(roleType)}`;
   }
 
-  function isRealJobUrl(jobUrl) {
-    if (!jobUrl) {
-      return false;
+  function getEligibilityLabel(value) {
+    return value || "Unknown";
+  }
+
+  function getEligibilityClass(value) {
+    if (value === "Worldwide" || value === "India") {
+      return "eligibility-good";
     }
 
-    return !jobUrl.includes("example.com");
+    if (value === "Unknown") {
+      return "eligibility-review";
+    }
+
+    return "eligibility-limited";
   }
 
   async function loadApplications() {
@@ -159,6 +167,7 @@ function App() {
         : "Ready to submit",
       requires_human_review: job.requires_human_review,
       job_url: job.job_url || "",
+      remote_eligibility: job.remote_eligibility || "Unknown",
     };
 
     try {
@@ -284,7 +293,6 @@ function App() {
                   <p className="card-label">
                     TODAY&apos;S OVERVIEW
                   </p>
-
                   <h2>Your job search</h2>
                 </div>
 
@@ -311,13 +319,10 @@ function App() {
               </div>
 
               <div className="activity-box">
-                <div className="activity-icon">
-                  ✓
-                </div>
+                <div className="activity-icon">✓</div>
 
                 <div>
                   <h3>Roleza is ready</h3>
-
                   <p>
                     Set your preferences to begin finding matching jobs.
                   </p>
@@ -328,12 +333,8 @@ function App() {
 
           <section className="features">
             <article>
-              <span className="feature-number">
-                01
-              </span>
-
+              <span className="feature-number">01</span>
               <h3>Smart matching</h3>
-
               <p>
                 Find roles based on your skills, location,
                 experience, and goals.
@@ -341,27 +342,18 @@ function App() {
             </article>
 
             <article>
-              <span className="feature-number">
-                02
-              </span>
-
+              <span className="feature-number">02</span>
               <h3>Resume selection</h3>
-
               <p>
                 Automatically use the right resume for AI or BDM roles.
               </p>
             </article>
 
             <article>
-              <span className="feature-number">
-                03
-              </span>
-
+              <span className="feature-number">03</span>
               <h3>Application tracking</h3>
-
               <p>
-                See what was applied to and where your attention
-                is required.
+                See what was applied to and where your attention is required.
               </p>
             </article>
           </section>
@@ -414,10 +406,9 @@ function App() {
 
           {loadingJobs && (
             <div className="results-message">
-              <h2>Searching for matching jobs...</h2>
-
+              <h2>Searching live jobs...</h2>
               <p>
-                Roleza is loading opportunities from the backend.
+                Roleza is loading current opportunities from live sources.
               </p>
             </div>
           )}
@@ -440,10 +431,11 @@ function App() {
             !jobsError &&
             jobs.length === 0 && (
               <div className="results-message">
-                <h2>No matching jobs found</h2>
+                <h2>No matching live jobs found</h2>
 
                 <p>
-                  Try changing your role or location preferences.
+                  Try Remote worldwide or another location.
+                  Some remote jobs are restricted to specific regions.
                 </p>
               </div>
             )}
@@ -454,8 +446,7 @@ function App() {
               <div className="results-grid">
                 {jobs.map((job) => {
                   const applied = isJobApplied(job.id);
-                  const applying =
-                    applyingJobId === job.id;
+                  const applying = applyingJobId === job.id;
 
                   return (
                     <article
@@ -489,6 +480,20 @@ function App() {
                         </span>
                       </div>
 
+                      <div
+                        className={`eligibility-box ${getEligibilityClass(
+                          job.remote_eligibility
+                        )}`}
+                      >
+                        <span>Remote eligibility</span>
+
+                        <strong>
+                          {getEligibilityLabel(
+                            job.remote_eligibility
+                          )}
+                        </strong>
+                      </div>
+
                       <p className="job-description">
                         {job.description}
                       </p>
@@ -515,20 +520,6 @@ function App() {
                         </div>
                       </div>
 
-                      {!isRealJobUrl(job.job_url) && (
-                        <div className="review-warning">
-                          <strong>
-                            Prototype job
-                          </strong>
-
-                          <span>
-                            This job currently uses a placeholder URL.
-                            Real application URLs will be added when
-                            live job sources are connected.
-                          </span>
-                        </div>
-                      )}
-
                       {job.requires_human_review && (
                         <div className="review-warning">
                           <strong>
@@ -536,9 +527,9 @@ function App() {
                           </strong>
 
                           <span>
-                            This application may include custom
-                            questions, verification, CAPTCHA,
-                            login, or another step that needs you.
+                            Roleza could not confirm whether this
+                            remote role accepts applicants from your
+                            selected location.
                           </span>
                         </div>
                       )}
@@ -560,9 +551,7 @@ function App() {
                               : "primary-button"
                           }
                           onClick={() => handleApply(job)}
-                          disabled={
-                            applied || applying
-                          }
+                          disabled={applied || applying}
                         >
                           {applied
                             ? "Added to applications"
@@ -698,6 +687,20 @@ function App() {
                       </span>
                     </div>
 
+                    <div
+                      className={`eligibility-box ${getEligibilityClass(
+                        application.remote_eligibility
+                      )}`}
+                    >
+                      <span>Remote eligibility</span>
+
+                      <strong>
+                        {getEligibilityLabel(
+                          application.remote_eligibility
+                        )}
+                      </strong>
+                    </div>
+
                     <div className="application-details">
                       <div>
                         <span>Resume</span>
@@ -729,26 +732,9 @@ function App() {
                       </div>
                     </div>
 
-                    {!isRealJobUrl(
-                      application.job_url
-                    ) && (
-                      <div className="review-warning">
-                        <strong>
-                          Prototype application
-                        </strong>
-
-                        <span>
-                          This saved application currently
-                          points to a placeholder job page.
-                        </span>
-                      </div>
-                    )}
-
                     <div className="job-actions">
                       <a
-                        href={
-                          application.job_url || "#"
-                        }
+                        href={application.job_url || "#"}
                         target="_blank"
                         rel="noreferrer"
                         className="secondary-button resume-action-button"
@@ -757,9 +743,7 @@ function App() {
                       </a>
 
                       <a
-                        href={
-                          application.job_url || "#"
-                        }
+                        href={application.job_url || "#"}
                         target="_blank"
                         rel="noreferrer"
                         className="primary-button resume-action-button"
@@ -777,15 +761,11 @@ function App() {
       {showPreferences && (
         <div
           className="modal-backdrop"
-          onClick={() =>
-            setShowPreferences(false)
-          }
+          onClick={() => setShowPreferences(false)}
         >
           <div
             className="preferences-modal"
-            onClick={(event) =>
-              event.stopPropagation()
-            }
+            onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-header">
               <div>
@@ -798,9 +778,7 @@ function App() {
 
               <button
                 className="close-button"
-                onClick={() =>
-                  setShowPreferences(false)
-                }
+                onClick={() => setShowPreferences(false)}
                 aria-label="Close preferences"
               >
                 ×
@@ -889,9 +867,7 @@ function App() {
                 <input
                   type="checkbox"
                   name="remoteOnly"
-                  checked={
-                    preferences.remoteOnly
-                  }
+                  checked={preferences.remoteOnly}
                   onChange={handleChange}
                 />
 
@@ -910,9 +886,7 @@ function App() {
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() =>
-                    setShowPreferences(false)
-                  }
+                  onClick={() => setShowPreferences(false)}
                 >
                   Cancel
                 </button>
