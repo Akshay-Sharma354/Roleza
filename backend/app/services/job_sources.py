@@ -355,6 +355,15 @@ def detect_remote_eligibility(
     location: str,
     description: str,
 ):
+    """
+    Determine whether a remote job is actually
+    available to someone based in India.
+
+    Important:
+    "Remote" alone does NOT mean worldwide.
+    Explicit geographic restrictions always win.
+    """
+
     title_location = " ".join(
         [
             title or "",
@@ -367,69 +376,192 @@ def detect_remote_eligibility(
             title or "",
             location or "",
             (
-                description[:4000]
+                description[:8000]
                 if description
                 else ""
             ),
         ]
     ).lower()
 
-    # Explicit location restrictions
-    # should beat generic phrases like
-    # "work from anywhere" in benefits.
+    # -------------------------------------------------
+    # Explicit UK / Europe restrictions
+    # -------------------------------------------------
+
+    uk_eu_restrictions = [
+        *EU_UK_KEYWORDS,
+
+        "united kingdom",
+        "based in the united kingdom",
+        "located in the united kingdom",
+        "reside in the united kingdom",
+        "live in the united kingdom",
+        "living in the united kingdom",
+        "candidates in the united kingdom",
+        "candidates based in the united kingdom",
+        "open to candidates in the united kingdom",
+        "must live in the united kingdom",
+        "must reside in the united kingdom",
+        "must be based in the united kingdom",
+
+        "based in the uk",
+        "located in the uk",
+        "reside in the uk",
+        "live in the uk",
+        "living in the uk",
+        "candidates in the uk",
+        "uk-based",
+        "uk based",
+
+        "based in european union",
+        "based in the european union",
+        "candidates in europe",
+        "candidates based in europe",
+        "must be based in europe",
+        "europe-based",
+        "europe based",
+    ]
+
+    # -------------------------------------------------
+    # Explicit US restrictions
+    # -------------------------------------------------
+
+    us_restrictions = [
+        *US_ONLY_KEYWORDS,
+        *US_RESTRICTION_KEYWORDS,
+
+        "candidates in the united states",
+        "candidates based in the united states",
+        "open to candidates in the united states",
+        "must reside in the united states",
+        "must live in the united states",
+        "must be located in the united states",
+        "us-based candidates",
+        "us based candidates",
+    ]
+
+    # -------------------------------------------------
+    # Explicit EMEA restrictions
+    # -------------------------------------------------
+
+    emea_restrictions = [
+        *EMEA_KEYWORDS,
+
+        "emea only",
+        "remote emea",
+        "remote - emea",
+        "candidates in emea",
+        "candidates based in emea",
+        "must be based in emea",
+    ]
+
+    # Restrictions in title/location are strongest.
     if any(
         keyword in title_location
-        for keyword in US_ONLY_KEYWORDS
+        for keyword in us_restrictions
     ):
         return "US only"
 
     if any(
         keyword in title_location
-        for keyword in EU_UK_KEYWORDS
+        for keyword in uk_eu_restrictions
     ):
         return "EU/UK only"
 
     if any(
         keyword in title_location
-        for keyword in EMEA_KEYWORDS
+        for keyword in emea_restrictions
     ):
         return "EMEA"
 
+    # Restrictions inside the job description
+    # also override generic remote wording.
     if any(
         keyword in searchable_text
-        for keyword in US_RESTRICTION_KEYWORDS
+        for keyword in us_restrictions
     ):
         return "US only"
 
     if any(
         keyword in searchable_text
-        for keyword in US_ONLY_KEYWORDS
-    ):
-        return "US only"
-
-    if any(
-        keyword in searchable_text
-        for keyword in EU_UK_KEYWORDS
+        for keyword in uk_eu_restrictions
     ):
         return "EU/UK only"
 
     if any(
         keyword in searchable_text
-        for keyword in EMEA_KEYWORDS
+        for keyword in emea_restrictions
     ):
         return "EMEA"
 
+    # -------------------------------------------------
+    # India eligibility
+    # -------------------------------------------------
+
+    india_positive = [
+        "remote india",
+        "india remote",
+        "based in india",
+        "located in india",
+        "candidates in india",
+        "candidates based in india",
+        "open to candidates in india",
+        "work remotely from india",
+        "remote from india",
+        "hiring in india",
+        "india-based",
+        "india based",
+    ]
+
     if any(
         keyword in searchable_text
-        for keyword in INDIA_KEYWORDS
+        for keyword in india_positive
     ):
         return "India"
 
+    # Location explicitly saying India is also valid.
+    if (
+        "india" in title_location
+        and not any(
+            keyword in title_location
+            for keyword in [
+                "united states",
+                "united kingdom",
+                "europe",
+                "emea",
+            ]
+        )
+    ):
+        return "India"
+
+    # -------------------------------------------------
+    # Worldwide eligibility
+    # -------------------------------------------------
+
+    worldwide_positive = [
+        *WORLDWIDE_KEYWORDS,
+
+        "remote anywhere",
+        "remote from anywhere",
+        "anywhere globally",
+        "anywhere worldwide",
+        "open globally",
+        "open worldwide",
+        "candidates worldwide",
+        "applicants worldwide",
+        "global candidates",
+        "hire globally",
+        "hiring globally",
+    ]
+
     if any(
         keyword in searchable_text
-        for keyword in WORLDWIDE_KEYWORDS
+        for keyword in worldwide_positive
     ):
         return "Worldwide"
+
+    # -------------------------------------------------
+    # Remote but geography cannot be proven
+    # -------------------------------------------------
 
     return "Unknown"
 
@@ -608,8 +740,14 @@ def normalize_arbeitnow_job(
         or ""
     )
 
+    # Arbeitnow can return HTML that is
+    # still encoded after one cleaning pass.
     clean_description = strip_html(
         raw_description
+    )
+
+    clean_description = strip_html(
+        clean_description
     )
 
     # Protect Roleza from clearly

@@ -471,6 +471,18 @@ def get_jobs(
             job_copy
         )
 
+        # Roleza freshness rule:
+        # Ignore postings older than 30 days.
+        age_days = job_copy.get(
+            "age_days"
+        )
+
+        if age_days is None:
+            continue
+
+        if age_days > 30:
+            continue
+
         filtered_jobs.append(
             job_copy
         )

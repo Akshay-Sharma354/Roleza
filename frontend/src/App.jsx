@@ -19,6 +19,10 @@ function App() {
     useState(false);
   const [inspectionError, setInspectionError] = useState("");
 
+  const [prepareLoading, setPrepareLoading] = useState(false);
+  const [prepareData, setPrepareData] = useState(null);
+  const [prepareError, setPrepareError] = useState("");
+
   const [preferences, setPreferences] = useState({
     roleType: "Both",
     location: "India",
@@ -303,6 +307,14 @@ function App() {
       }
 
       setInspectionData(data);
+
+      if (data.dead_job) {
+        setJobs((previousJobs) =>
+          previousJobs.filter(
+            (item) => item.id !== job.id
+          )
+        );
+      }
     } catch (error) {
       console.error(error);
 
@@ -315,11 +327,66 @@ function App() {
     }
   }
 
+  async function prepareApplication(job) {
+    if (!job?.job_url) {
+      setPrepareError(
+        "This job does not have an application URL."
+      );
+      return;
+    }
+
+    setPrepareLoading(true);
+    setPrepareData(null);
+    setPrepareError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/browser/start-application`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            job_url: job.job_url,
+            role_type: job.role_type || "AI",
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      setPrepareData(data);
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail
+          || "Roleza could not prepare this application."
+        );
+      }
+    } catch (error) {
+      console.error(error);
+
+      setPrepareError(
+        error.message
+        || "Roleza could not prepare this application."
+      );
+    } finally {
+      setPrepareLoading(false);
+    }
+  }
+
   function closeInspection() {
     setInspectionJob(null);
     setInspectionData(null);
     setInspectionError("");
     setInspectionLoading(false);
+
+    setPrepareLoading(false);
+    setPrepareData(null);
+    setPrepareError("");
   }
 
   function shortenQuestion(context) {
@@ -1238,6 +1305,43 @@ function App() {
             )}
 
             {!inspectionLoading &&
+              inspectionData?.dead_job && (
+                <div className="dead-job-result">
+                  <div className="dead-job-icon">
+                    ✕
+                  </div>
+
+                  <h3>
+                    This job is no longer available
+                  </h3>
+
+                  <p>
+                    Roleza followed the real application
+                    link and found that the employer's
+                    application page is closed or missing.
+                  </p>
+
+                  {inspectionData.dead_job_reason && (
+                    <div className="dead-job-reason">
+                      Detected:{" "}
+                      <strong>
+                        {inspectionData.dead_job_reason}
+                      </strong>
+                    </div>
+                  )}
+
+                  <div className="dead-job-actions">
+                    <button
+                      className="primary-button"
+                      onClick={closeInspection}
+                    >
+                      Remove & continue
+                    </button>
+                  </div>
+                </div>
+              )}
+
+            {!inspectionLoading &&
               inspectionSummary && (
                 <>
                   <div className="inspection-status">
@@ -1448,6 +1552,7 @@ function App() {
                       disabled={
                         !inspectionSummary
                           .can_prepare_application
+                        || prepareLoading
                       }
                       title={
                         inspectionSummary
@@ -1455,10 +1560,115 @@ function App() {
                           ? ""
                           : "Resolve the hard blocker before Roleza can prepare this application."
                       }
+                      onClick={() =>
+                        prepareApplication(
+                          inspectionJob
+                        )
+                      }
                     >
-                      Prepare application
+                      {prepareLoading
+                        ? "Preparing..."
+                        : "Prepare application"}
                     </button>
                   </div>
+
+                  {prepareError && (
+                    <div className="prepare-result prepare-result-error">
+                      <strong>
+                        Preparation failed
+                      </strong>
+
+                      <p>
+                        {prepareError}
+                      </p>
+                    </div>
+                  )}
+
+                  {prepareData && (
+                    <div className="prepare-result">
+                      <div className="prepare-result-header">
+                        <div>
+                          <span>
+                            Application preparation
+                          </span>
+
+                          <strong>
+                            {prepareData.status
+                              || "Completed"}
+                          </strong>
+                        </div>
+
+                        <span
+                          className={
+                            prepareData.success
+                              ? "prepare-success"
+                              : "prepare-warning"
+                          }
+                        >
+                          {prepareData.success
+                            ? "Prepared"
+                            : "Human action needed"}
+                        </span>
+                      </div>
+
+                      {prepareData.filled_fields &&
+                        prepareData.filled_fields.length > 0 && (
+                          <div className="prepare-detail">
+                            <span>
+                              Fields filled
+                            </span>
+
+                            <strong>
+                              {prepareData.filled_fields.join(
+                                ", "
+                              )}
+                            </strong>
+                          </div>
+                        )}
+
+                      {prepareData.resume && (
+                        <div className="prepare-detail">
+                          <span>
+                            Resume
+                          </span>
+
+                          <strong>
+                            {prepareData.resume.uploaded
+                              ? `Uploaded: ${prepareData.resume.filename}`
+                              : prepareData.resume.reason
+                                || "Not uploaded"}
+                          </strong>
+                        </div>
+                      )}
+
+                      {prepareData.hard_blockers &&
+                        prepareData.hard_blockers.length > 0 && (
+                          <div className="prepare-detail">
+                            <span>
+                              Blocker
+                            </span>
+
+                            <strong>
+                              {prepareData.hard_blockers.join(
+                                ", "
+                              )}
+                            </strong>
+                          </div>
+                        )}
+
+                      <div className="prepare-detail">
+                        <span>
+                          Submitted
+                        </span>
+
+                        <strong>
+                          {prepareData.submitted
+                            ? "Yes"
+                            : "No — waiting for review"}
+                        </strong>
+                      </div>
+                    </div>
+                  )}
 
                   {!inspectionSummary
                     .can_prepare_application && (
