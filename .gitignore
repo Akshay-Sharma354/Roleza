@@ -23,3 +23,4 @@ backend/roleza.db
 *.db-shm
 *.db-wal
 backend/resumes/
+backend/profile.json
