@@ -4,8 +4,9 @@ import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from playwright.async_api import (
-    async_playwright,
     Page,
+    Frame,
+    async_playwright,
 )
 
 from app.services.profile import (
@@ -27,8 +28,10 @@ BASE_DIR = (
     .parent
 )
 
-RESUME_DIR = BASE_DIR / "resumes"
-
+RESUME_DIR = (
+    BASE_DIR
+    / "resumes"
+)
 
 RESUME_FILES = {
     "AI": (
@@ -42,11 +45,16 @@ RESUME_FILES = {
 }
 
 
+# =========================================================
+# FIELD CLASSIFICATION
+# =========================================================
+
 SAFE_FIELD_KEYWORDS = [
     "first name",
     "firstname",
     "given name",
     "preferred first name",
+    "preferred name",
     "last name",
     "lastname",
     "surname",
@@ -112,20 +120,19 @@ USER_DECISION_KEYWORDS = [
     "legally eligible",
     "legally authorized",
     "legally authorised",
+
     "visa sponsorship",
     "sponsorship",
     "require sponsorship",
     "status that allows you to work",
     "work and live in that country",
 
-    # Location / residency eligibility
     "do you currently live in this location",
     "currently live in this location",
     "open to candidates in",
     "currently reside in",
     "currently living in",
 
-    # Experience / self-rating questions
     "years of professional software engineering experience",
     "years of software engineering experience",
     "do you have over",
@@ -133,7 +140,6 @@ USER_DECISION_KEYWORDS = [
     "scale from 0 to 5",
     "scale from 1 to 5",
 
-    # Employment history / restrictions
     "employment agreements",
     "post-employment restrictions",
     "post employment restrictions",
@@ -142,7 +148,6 @@ USER_DECISION_KEYWORDS = [
     "previously consulted for",
     "worked at or consulted for",
 
-    # Required external profile fields
     "linkedin profile",
 
     "salary expectation",
@@ -151,23 +156,32 @@ USER_DECISION_KEYWORDS = [
     "desired salary",
     "compensation expectation",
     "current salary",
+
     "notice period",
+
     "security clearance",
     "citizenship",
+
     "willing to relocate",
     "relocation",
+
     "willing to travel",
     "able to travel",
     "travel approximately",
     "travel requirement",
+
     "non-compete",
     "non compete",
+
     "how did you hear about",
+
     "hired through remote as a third party",
     "third party",
+
     "assessment",
     "take-home",
     "take home",
+
     "privacy notice",
 ]
 
@@ -250,9 +264,18 @@ DEAD_JOB_KEYWORDS = [
 APPLY_BUTTON_TEXT = [
     "apply now",
     "apply for this job",
+    "apply to this job",
+    "apply for this position",
+    "apply to this position",
+    "apply here",
+    "start application",
     "apply",
 ]
 
+
+# =========================================================
+# REQUEST MODELS
+# =========================================================
 
 class InspectApplicationRequest(
     BaseModel
@@ -276,7 +299,13 @@ class StartApplicationRequest(
     country: str = ""
 
 
-def normalize(value):
+# =========================================================
+# BASIC HELPERS
+# =========================================================
+
+def normalize(
+    value,
+):
     return re.sub(
         r"\s+",
         " ",
@@ -297,7 +326,9 @@ def contains_any(
     )
 
 
-def validate_url(job_url):
+def validate_url(
+    job_url,
+):
     return job_url.startswith(
         (
             "http://",
@@ -370,6 +401,10 @@ def apply_saved_profile(
     return request
 
 
+# =========================================================
+# PAGE STATUS
+# =========================================================
+
 async def get_page_text(
     page: Page,
 ):
@@ -382,22 +417,6 @@ async def get_page_text(
 
     except Exception:
         return ""
-
-
-async def page_has_text(
-    page: Page,
-    keywords,
-):
-    body_text = (
-        await get_page_text(
-            page
-        )
-    )
-
-    return contains_any(
-        body_text,
-        keywords,
-    )
 
 
 async def detect_dead_job(
@@ -444,6 +463,13 @@ async def detect_dead_job(
 async def detect_captcha(
     page: Page,
 ):
+    """
+    Detect CAPTCHA on the main page
+    OR any iframe.
+
+    Important for Greenhouse forms.
+    """
+
     selectors = [
         "iframe[src*='recaptcha']",
         "iframe[src*='hcaptcha']",
@@ -465,56 +491,253 @@ async def detect_captcha(
         except Exception:
             pass
 
-    return await page_has_text(
-        page,
-        CAPTCHA_KEYWORDS,
-    )
+    for frame in page.frames:
+        frame_url = normalize(
+            frame.url
+        )
+
+        if any(
+            keyword in frame_url
+            for keyword in [
+                "recaptcha",
+                "hcaptcha",
+                "captcha",
+            ]
+        ):
+            return True
+
+        try:
+            if (
+                await frame.locator(
+                    "[data-sitekey]"
+                ).count()
+                > 0
+            ):
+                return True
+
+        except Exception:
+            pass
+
+    return False
 
 
 async def detect_login_wall(
     page: Page,
 ):
+    scopes = [
+        page,
+        *page.frames,
+    ]
+
+    for scope in scopes:
+        try:
+            if (
+                await scope.locator(
+                    'input[type="password"]'
+                ).count()
+                > 0
+            ):
+                return True
+
+        except Exception:
+            pass
+
+    return False
+
+
+# =========================================================
+# APPLICATION FRAME DETECTION
+# =========================================================
+
+def is_noise_frame(
+    frame: Frame,
+):
+    url = normalize(
+        frame.url
+    )
+
+    noise = [
+        "recaptcha",
+        "hcaptcha",
+        "captcha",
+        "content.googleapis.com/static/proxy",
+    ]
+
+    return any(
+        item in url
+        for item in noise
+    )
+
+
+async def count_meaningful_fields(
+    scope,
+):
+    """
+    Count real application controls.
+
+    Hidden CAPTCHA/system fields
+    are ignored.
+    """
+
     try:
-        if (
-            await page.locator(
-                'input[type="password"]'
-            ).count()
-            > 0
-        ):
-            return True
+        elements = scope.locator(
+            "input, textarea, select"
+        )
+
+        count = (
+            await elements.count()
+        )
 
     except Exception:
-        pass
+        return 0
 
-    return await page_has_text(
-        page,
-        LOGIN_KEYWORDS,
+    meaningful = 0
+
+    for index in range(
+        min(
+            count,
+            250,
+        )
+    ):
+        element = (
+            elements.nth(
+                index
+            )
+        )
+
+        try:
+            input_type = normalize(
+                await element.get_attribute(
+                    "type"
+                )
+                or ""
+            )
+
+            if input_type == "hidden":
+                continue
+
+            meaningful += 1
+
+        except Exception:
+            meaningful += 1
+
+    return meaningful
+
+
+async def get_application_scope(
+    page: Page,
+):
+    """
+    Find where the actual application form lives.
+
+    It may be:
+    - directly on the page
+    - inside a Greenhouse iframe
+    - inside another ATS iframe
+    """
+
+    best_scope = page
+
+    best_count = (
+        await count_meaningful_fields(
+            page
+        )
+    )
+
+    best_url = page.url
+    best_is_frame = False
+
+    for frame in page.frames:
+        if frame == page.main_frame:
+            continue
+
+        if is_noise_frame(
+            frame
+        ):
+            continue
+
+        count = (
+            await count_meaningful_fields(
+                frame
+            )
+        )
+
+        if count > best_count:
+            best_scope = frame
+            best_count = count
+            best_url = frame.url
+            best_is_frame = True
+
+    return {
+        "scope":
+            best_scope,
+
+        "field_count":
+            best_count,
+
+        "scope_url":
+            best_url,
+
+        "is_frame":
+            best_is_frame,
+    }
+
+
+async def wait_for_application_scope(
+    page: Page,
+    timeout_ms=15000,
+):
+    elapsed = 0
+
+    while elapsed < timeout_ms:
+        result = (
+            await get_application_scope(
+                page
+            )
+        )
+
+        if (
+            result[
+                "field_count"
+            ]
+            > 0
+        ):
+            return result
+
+        await page.wait_for_timeout(
+            500
+        )
+
+        elapsed += 500
+
+    return (
+        await get_application_scope(
+            page
+        )
     )
 
 
 # =========================================================
-# IMPORTANT:
-# Click Apply AND follow new browser tabs/popups
+# APPLY LINK / POPUP ROUTING
 # =========================================================
 
 async def click_apply_and_follow(
     page: Page,
 ):
     """
-    Find the real application destination.
+    Follow real employer application destination.
 
-    Priority:
-    1. Read the Apply link href directly.
-    2. Open that URL ourselves.
-    3. Fall back to clicking buttons/links.
-    4. Detect popup/new-tab navigation.
+    Supports:
+    - direct href
+    - redirects
+    - popup/new-tab ATS pages
     """
 
     context = page.context
 
-    # -----------------------------------------------------
-    # FIRST: inspect Apply links and use their href directly
-    # -----------------------------------------------------
+    # -------------------------------------------------
+    # DIRECT APPLY LINK
+    # -------------------------------------------------
 
     for text in APPLY_BUTTON_TEXT:
         pattern = re.compile(
@@ -523,15 +746,25 @@ async def click_apply_and_follow(
         )
 
         try:
-            links = page.get_by_role(
-                "link",
-                name=pattern,
+            links = (
+                page.get_by_role(
+                    "link",
+                    name=pattern,
+                )
             )
 
-            count = await links.count()
+            count = (
+                await links.count()
+            )
 
-            for index in range(count):
-                link = links.nth(index)
+            for index in range(
+                count
+            ):
+                link = (
+                    links.nth(
+                        index
+                    )
+                )
 
                 href = (
                     await link.get_attribute(
@@ -553,47 +786,57 @@ async def click_apply_and_follow(
                 ):
                     continue
 
-                # Resolve relative URL in browser.
-                absolute_url = await link.evaluate(
-                    """
-                    (el) => el.href
-                    """
+                absolute_url = (
+                    await link.evaluate(
+                        "(el) => el.href"
+                    )
                 )
 
                 if (
-                    absolute_url
-                    and absolute_url
-                    != page.url
+                    not absolute_url
+                    or absolute_url
+                    == page.url
                 ):
-                    application_page = (
-                        await context.new_page()
-                    )
+                    continue
 
-                    await application_page.goto(
-                        absolute_url,
-                        wait_until="domcontentloaded",
-                        timeout=45000,
-                    )
+                application_page = (
+                    await context.new_page()
+                )
 
-                    await application_page.wait_for_timeout(
-                        1500
-                    )
+                await application_page.goto(
+                    absolute_url,
+                    wait_until=
+                        "domcontentloaded",
+                    timeout=45000,
+                )
 
-                    return {
-                        "opened": True,
-                        "page": application_page,
-                        "new_tab": True,
-                        "method": "direct_href",
-                        "application_url":
-                            application_page.url,
-                    }
+                await application_page.wait_for_timeout(
+                    2500
+                )
+
+                return {
+                    "opened":
+                        True,
+
+                    "page":
+                        application_page,
+
+                    "new_tab":
+                        True,
+
+                    "method":
+                        "direct_href",
+
+                    "application_url":
+                        application_page.url,
+                }
 
         except Exception:
             pass
 
-    # -----------------------------------------------------
-    # SECOND: fall back to clicking Apply
-    # -----------------------------------------------------
+    # -------------------------------------------------
+    # CLICK APPLY / CAPTURE POPUP
+    # -------------------------------------------------
 
     for text in APPLY_BUTTON_TEXT:
         pattern = re.compile(
@@ -604,9 +847,11 @@ async def click_apply_and_follow(
         candidates = []
 
         try:
-            button = page.get_by_role(
-                "button",
-                name=pattern,
+            button = (
+                page.get_by_role(
+                    "button",
+                    name=pattern,
+                )
             )
 
             if (
@@ -621,9 +866,11 @@ async def click_apply_and_follow(
             pass
 
         try:
-            link = page.get_by_role(
-                "link",
-                name=pattern,
+            link = (
+                page.get_by_role(
+                    "link",
+                    name=pattern,
+                )
             )
 
             if (
@@ -643,13 +890,58 @@ async def click_apply_and_follow(
                     context.pages
                 )
 
-                old_url = page.url
+                old_url = (
+                    page.url
+                )
 
-                await candidate.click()
+                try:
+                    async with (
+                        context.expect_page(
+                            timeout=10000
+                        )
+                    ) as popup_info:
 
-                # Some job boards delay opening the ATS.
+                        await candidate.click()
+
+                    popup = (
+                        await popup_info.value
+                    )
+
+                    try:
+                        await popup.wait_for_load_state(
+                            "domcontentloaded",
+                            timeout=30000,
+                        )
+
+                    except Exception:
+                        pass
+
+                    await popup.wait_for_timeout(
+                        2500
+                    )
+
+                    return {
+                        "opened":
+                            True,
+
+                        "page":
+                            popup,
+
+                        "new_tab":
+                            True,
+
+                        "method":
+                            "popup",
+
+                        "application_url":
+                            popup.url,
+                    }
+
+                except Exception:
+                    pass
+
                 await page.wait_for_timeout(
-                    5000
+                    4000
                 )
 
                 pages_after = list(
@@ -657,56 +949,47 @@ async def click_apply_and_follow(
                 )
 
                 new_pages = [
-                    current_page
-                    for current_page in pages_after
-                    if current_page
-                    not in pages_before
+                    p
+                    for p in pages_after
+                    if p not in pages_before
                 ]
 
                 if new_pages:
-                    application_page = (
+                    popup = (
                         new_pages[-1]
                     )
 
-                    try:
-                        await application_page.wait_for_load_state(
-                            "domcontentloaded",
-                            timeout=20000,
-                        )
-                    except Exception:
-                        pass
-
-                    await application_page.wait_for_timeout(
-                        1500
-                    )
-
                     return {
-                        "opened": True,
+                        "opened":
+                            True,
+
                         "page":
-                            application_page,
-                        "new_tab": True,
+                            popup,
+
+                        "new_tab":
+                            True,
+
                         "method":
-                            "popup",
+                            "popup_fallback",
+
                         "application_url":
-                            application_page.url,
+                            popup.url,
                     }
 
-                # Same-tab redirect.
                 if page.url != old_url:
-                    try:
-                        await page.wait_for_load_state(
-                            "domcontentloaded",
-                            timeout=15000,
-                        )
-                    except Exception:
-                        pass
-
                     return {
-                        "opened": True,
-                        "page": page,
-                        "new_tab": False,
+                        "opened":
+                            True,
+
+                        "page":
+                            page,
+
+                        "new_tab":
+                            False,
+
                         "method":
                             "same_tab_redirect",
+
                         "application_url":
                             page.url,
                     }
@@ -715,68 +998,194 @@ async def click_apply_and_follow(
                 continue
 
     return {
-        "opened": False,
-        "page": page,
-        "new_tab": False,
-        "method": "not_found",
-        "application_url": page.url,
+        "opened":
+            False,
+
+        "page":
+            page,
+
+        "new_tab":
+            False,
+
+        "method":
+            "not_found",
+
+        "application_url":
+            page.url,
     }
 
+
+# =========================================================
+# FIELD CONTEXT
+# =========================================================
 
 async def get_field_context(
     element,
 ):
-    parts = []
+    """
+    Build field context using DOM inside
+    the field's own page/frame.
 
-    for attribute in [
-        "name",
-        "id",
-        "placeholder",
-        "aria-label",
-        "autocomplete",
-    ]:
-        try:
-            value = (
-                await element.get_attribute(
-                    attribute
-                )
-            )
-
-            if value:
-                parts.append(
-                    value
-                )
-
-        except Exception:
-            pass
+    This is iframe-safe.
+    """
 
     try:
-        element_id = (
-            await element.get_attribute(
-                "id"
+        parts = (
+            await element.evaluate(
+                """
+                (el) => {
+                    const output = [];
+
+                    const attrs = [
+                        'name',
+                        'id',
+                        'placeholder',
+                        'aria-label',
+                        'autocomplete',
+                        'data-automation-id',
+                        'data-testid'
+                    ];
+
+                    for (const attr of attrs) {
+                        const value =
+                            el.getAttribute(attr);
+
+                        if (value) {
+                            output.push(value);
+                        }
+                    }
+
+                    if (el.labels) {
+                        for (
+                            const label
+                            of Array.from(
+                                el.labels
+                            )
+                        ) {
+                            const text =
+                                (
+                                    label.innerText
+                                    ||
+                                    label.textContent
+                                    ||
+                                    ''
+                                ).trim();
+
+                            if (text) {
+                                output.push(
+                                    text
+                                );
+                            }
+                        }
+                    }
+
+                    const labelledBy =
+                        el.getAttribute(
+                            'aria-labelledby'
+                        );
+
+                    if (labelledBy) {
+                        for (
+                            const id
+                            of labelledBy.split(
+                                /\\s+/
+                            )
+                        ) {
+                            const node =
+                                el.ownerDocument
+                                .getElementById(
+                                    id
+                                );
+
+                            if (node) {
+                                const text =
+                                    (
+                                        node.innerText
+                                        ||
+                                        node.textContent
+                                        ||
+                                        ''
+                                    ).trim();
+
+                                if (text) {
+                                    output.push(
+                                        text
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    const wrapped =
+                        el.closest(
+                            'label'
+                        );
+
+                    if (wrapped) {
+                        const text =
+                            (
+                                wrapped.innerText
+                                ||
+                                wrapped.textContent
+                                ||
+                                ''
+                            ).trim();
+
+                        if (text) {
+                            output.push(
+                                text
+                            );
+                        }
+                    }
+
+                    if (el.id) {
+                        try {
+                            const escaped =
+                                CSS.escape(
+                                    el.id
+                                );
+
+                            const label =
+                                el.ownerDocument
+                                .querySelector(
+                                    `label[for="${escaped}"]`
+                                );
+
+                            if (label) {
+                                const text =
+                                    (
+                                        label.innerText
+                                        ||
+                                        label.textContent
+                                        ||
+                                        ''
+                                    ).trim();
+
+                                if (text) {
+                                    output.push(
+                                        text
+                                    );
+                                }
+                            }
+
+                        } catch (e) {}
+                    }
+
+                    return output;
+                }
+                """
             )
         )
 
-        if element_id:
-            label = (
-                element.page.locator(
-                    f'label[for="{element_id}"]'
-                )
-            )
-
-            if (
-                await label.count()
-                > 0
-            ):
-                parts.append(
-                    await label.first.inner_text()
-                )
-
     except Exception:
-        pass
+        parts = []
 
     return normalize(
-        " ".join(parts)
+        " ".join(
+            str(part)
+            for part in parts
+            if part
+        )
     )
 
 
@@ -860,13 +1269,19 @@ def classify_field_context(
     return "unknown_optional"
 
 
+# =========================================================
+# FIELD INSPECTION
+# =========================================================
+
 async def inspect_fields(
-    page: Page,
+    scope,
 ):
     results = []
 
-    elements = page.locator(
-        "input, textarea, select"
+    elements = (
+        scope.locator(
+            "input, textarea, select"
+        )
     )
 
     count = (
@@ -876,26 +1291,31 @@ async def inspect_fields(
     for index in range(
         min(
             count,
-            150,
+            250,
         )
     ):
         element = (
-            elements.nth(index)
+            elements.nth(
+                index
+            )
         )
 
         try:
+            input_type = normalize(
+                await element.get_attribute(
+                    "type"
+                )
+                or ""
+            )
+
+            if input_type == "hidden":
+                continue
+
             tag_name = (
                 await element.evaluate(
                     "(el) => "
                     "el.tagName.toLowerCase()"
                 )
-            )
-
-            field_type = (
-                await element.get_attribute(
-                    "type"
-                )
-                or tag_name
             )
 
             context = (
@@ -923,12 +1343,21 @@ async def inspect_fields(
 
             results.append(
                 {
-                    "index": index,
-                    "type": field_type,
+                    "index":
+                        index,
+
+                    "type":
+                        (
+                            input_type
+                            or tag_name
+                        ),
+
                     "context":
                         context[:450],
+
                     "required":
                         required,
+
                     "category":
                         category,
                 }
@@ -939,6 +1368,10 @@ async def inspect_fields(
 
     return results
 
+
+# =========================================================
+# SUMMARY
+# =========================================================
 
 def build_field_summary(
     fields,
@@ -953,12 +1386,16 @@ def build_field_summary(
     unknown_optional = []
 
     for field in fields:
-        category = field.get(
-            "category"
+        category = (
+            field.get(
+                "category"
+            )
         )
 
         if category == "safe":
-            safe_fields.append(field)
+            safe_fields.append(
+                field
+            )
 
         elif category == "draftable":
             draftable_questions.append(
@@ -978,12 +1415,18 @@ def build_field_summary(
                 field
             )
 
-        elif category == "unknown_required":
+        elif (
+            category
+            == "unknown_required"
+        ):
             unknown_required.append(
                 field
             )
 
-        elif category == "unknown_optional":
+        elif (
+            category
+            == "unknown_optional"
+        ):
             unknown_optional.append(
                 field
             )
@@ -998,6 +1441,11 @@ def build_field_summary(
     if login_wall:
         hard_blockers.append(
             "Login or account creation"
+        )
+
+    if not fields:
+        hard_blockers.append(
+            "Application form not detected"
         )
 
     return {
@@ -1027,7 +1475,9 @@ def build_field_summary(
                 len(fields),
 
             "safe":
-                len(safe_fields),
+                len(
+                    safe_fields
+                ),
 
             "draftable":
                 len(
@@ -1060,13 +1510,20 @@ def build_field_summary(
                 ),
         },
 
+        # CAPTCHA does NOT stop Roleza
+        # from preparing safe fields.
+        #
+        # It only stops submission.
         "can_prepare_application":
-            not captcha
-            and not login_wall,
+            (
+                bool(fields)
+                and not login_wall
+            ),
 
         "can_submit_automatically":
             (
-                not hard_blockers
+                bool(fields)
+                and not hard_blockers
                 and not user_decisions
                 and not personal_questions
                 and not draftable_questions
@@ -1075,526 +1532,655 @@ def build_field_summary(
     }
 
 
+# =========================================================
+# SAFE AUTOFILL
+# =========================================================
+
 async def safe_fill(
-    page: Page,
+    scope,
     request: StartApplicationRequest,
 ):
-    """
-    Fill only safe, factual application fields.
-
-    Strategy:
-    1. Try common application labels directly.
-    2. Handle country dropdowns.
-    3. Fall back to Roleza's generic field classifier.
-    """
-
     filled = []
     skipped = []
 
-    async def fill_by_label(
-        labels,
+    def remember_filled(
+        name,
+    ):
+        if (
+            name
+            and name not in filled
+        ):
+            filled.append(
+                name
+            )
+
+    def remember_skipped(
+        name,
+    ):
+        if (
+            name
+            and name not in skipped
+        ):
+            skipped.append(
+                name
+            )
+
+    async def try_fill(
+        locator,
         value,
         field_name,
     ):
         if not value:
             return False
 
-        for label in labels:
-            try:
-                locator = page.get_by_label(
-                    re.compile(
-                        label,
-                        re.IGNORECASE,
-                    )
-                )
-
-                count = await locator.count()
-
-                for i in range(count):
-                    element = locator.nth(i)
-
-                    try:
-                        if not await element.is_visible():
-                            continue
-                    except Exception:
-                        pass
-
-                    try:
-                        await element.fill(
-                            str(value)
-                        )
-
-                        filled.append(
-                            field_name
-                        )
-
-                        return True
-
-                    except Exception:
-                        continue
-
-            except Exception:
-                continue
-
-        return False
-
-    # -------------------------------------------------
-    # Direct safe profile fields
-    # -------------------------------------------------
-
-    await fill_by_label(
-        [
-            r"^first name",
-            r"^given name",
-        ],
-        request.first_name,
-        "First name",
-    )
-
-    await fill_by_label(
-        [
-            r"^preferred first name",
-            r"^preferred name",
-        ],
-        request.first_name,
-        "Preferred first name",
-    )
-
-    await fill_by_label(
-        [
-            r"^last name",
-            r"^surname",
-            r"^family name",
-        ],
-        request.last_name,
-        "Last name",
-    )
-
-    await fill_by_label(
-        [
-            r"^full name",
-        ],
-        (
-            request.full_name
-            or (
-                f"{request.first_name} "
-                f"{request.last_name}"
-            ).strip()
-        ),
-        "Full name",
-    )
-
-    await fill_by_label(
-        [
-            r"^email",
-            r"email address",
-        ],
-        request.email,
-        "Email",
-    )
-
-    await fill_by_label(
-        [
-            r"^phone",
-            r"telephone",
-            r"mobile",
-        ],
-        request.phone,
-        "Phone",
-    )
-
-    # -------------------------------------------------
-    # Country / country of residence
-    # -------------------------------------------------
-
-    if request.country:
-        country_patterns = [
-            r"^country$",
-            r"country of residence",
-            r"current country of residence",
-            r"country in which you are located",
-        ]
-
-        country_done = False
-
-        for pattern in country_patterns:
-            try:
-                locator = page.get_by_label(
-                    re.compile(
-                        pattern,
-                        re.IGNORECASE,
-                    )
-                )
-
-                count = await locator.count()
-
-                for i in range(count):
-                    element = locator.nth(i)
-
-                    try:
-                        tag_name = await element.evaluate(
-                            "(el) => el.tagName.toLowerCase()"
-                        )
-                    except Exception:
-                        tag_name = ""
-
-                    if tag_name == "select":
-                        try:
-                            await element.select_option(
-                                label=request.country
-                            )
-
-                            filled.append(
-                                "Country"
-                            )
-
-                            country_done = True
-                            break
-
-                        except Exception:
-                            try:
-                                await element.select_option(
-                                    value=request.country
-                                )
-
-                                filled.append(
-                                    "Country"
-                                )
-
-                                country_done = True
-                                break
-
-                            except Exception:
-                                pass
-
-                    # Custom combobox / React dropdown.
-                    try:
-                        await element.click()
-
-                        option = page.get_by_role(
-                            "option",
-                            name=re.compile(
-                                rf"^{re.escape(request.country)}$",
-                                re.IGNORECASE,
-                            ),
-                        )
-
-                        if await option.count():
-                            await option.first.click()
-
-                            filled.append(
-                                "Country"
-                            )
-
-                            country_done = True
-                            break
-
-                    except Exception:
-                        pass
-
-                    try:
-                        await element.fill(
-                            request.country
-                        )
-
-                        await page.wait_for_timeout(
-                            300
-                        )
-
-                        option = page.get_by_text(
-                            re.compile(
-                                rf"^{re.escape(request.country)}$",
-                                re.IGNORECASE,
-                            )
-                        )
-
-                        if await option.count():
-                            await option.first.click()
-
-                        filled.append(
-                            "Country"
-                        )
-
-                        country_done = True
-                        break
-
-                    except Exception:
-                        pass
-
-                if country_done:
-                    break
-
-            except Exception:
-                continue
-
-        # Some ATS dropdowns do not expose a normal label.
-        if not country_done:
-            try:
-                country_text = page.get_by_text(
-                    re.compile(
-                        r"^country$",
-                        re.IGNORECASE,
-                    )
-                )
-
-                if await country_text.count():
-                    await country_text.first.click()
-
-                    await page.wait_for_timeout(
-                        300
-                    )
-
-                    india_option = page.get_by_text(
-                        re.compile(
-                            rf"^{re.escape(request.country)}$",
-                            re.IGNORECASE,
-                        )
-                    )
-
-                    if await india_option.count():
-                        await india_option.last.click()
-
-                        filled.append(
-                            "Country"
-                        )
-
-                        country_done = True
-
-            except Exception:
-                pass
-
-        if not country_done:
-            skipped.append(
-                "Country"
-            )
-
-    # -------------------------------------------------
-    # Generic safe-field fallback
-    # -------------------------------------------------
-
-    elements = page.locator(
-        "input, textarea, select"
-    )
-
-    count = await elements.count()
-
-    for index in range(
-        min(
-            count,
-            150,
-        )
-    ):
-        element = elements.nth(index)
-
         try:
-            input_type = normalize(
-                await element.get_attribute(
-                    "type"
-                )
-                or ""
+            count = (
+                await locator.count()
             )
 
-            if input_type in [
-                "hidden",
-                "submit",
-                "button",
-                "checkbox",
-                "radio",
-                "file",
-            ]:
-                continue
+        except Exception:
+            return False
 
-            tag_name = await element.evaluate(
-                "(el) => el.tagName.toLowerCase()"
+        for index in range(
+            min(
+                count,
+                15,
+            )
+        ):
+            element = (
+                locator.nth(
+                    index
+                )
             )
 
-            context = await get_field_context(
-                element
-            )
-
-            if not context:
-                continue
-
-            required = await field_is_required(
-                element,
-                context,
-            )
-
-            if (
-                classify_field_context(
-                    context,
-                    required,
-                )
-                != "safe"
-            ):
-                continue
-
-            value = None
-            field_name = None
-
-            if any(
-                x in context
-                for x in [
-                    "preferred first name",
-                    "preferred name",
-                ]
-            ):
-                value = request.first_name
-                field_name = (
-                    "Preferred first name"
-                )
-
-            elif any(
-                x in context
-                for x in [
-                    "first name",
-                    "firstname",
-                    "given name",
-                ]
-            ):
-                value = request.first_name
-                field_name = "First name"
-
-            elif any(
-                x in context
-                for x in [
-                    "last name",
-                    "lastname",
-                    "surname",
-                    "family name",
-                ]
-            ):
-                value = request.last_name
-                field_name = "Last name"
-
-            elif (
-                "full name" in context
-                or context == "name"
-            ):
-                value = (
-                    request.full_name
-                    or (
-                        f"{request.first_name} "
-                        f"{request.last_name}"
-                    ).strip()
-                )
-
-                field_name = "Full name"
-
-            elif "email" in context:
-                value = request.email
-                field_name = "Email"
-
-            elif any(
-                x in context
-                for x in [
-                    "phone",
-                    "telephone",
-                    "mobile",
-                ]
-            ):
-                value = request.phone
-                field_name = "Phone"
-
-            elif any(
-                x in context
-                for x in [
-                    "current country of residence",
-                    "country of residence",
-                    "country off country",
-                    "country in which you are located",
-                ]
-            ):
-                value = request.country
-                field_name = "Country"
-
-            if not value:
-                continue
-
-            # Don't repeatedly overwrite fields
-            # already populated above.
             try:
-                existing = await element.input_value()
-
-                if existing.strip():
+                if not (
+                    await element.is_visible()
+                ):
                     continue
 
             except Exception:
                 pass
 
-            if tag_name == "select":
-                try:
-                    await element.select_option(
-                        label=value
+            try:
+                input_type = normalize(
+                    await element.get_attribute(
+                        "type"
                     )
+                    or ""
+                )
 
-                    filled.append(
+                if input_type in [
+                    "hidden",
+                    "submit",
+                    "button",
+                    "checkbox",
+                    "radio",
+                    "file",
+                ]:
+                    continue
+
+            except Exception:
+                pass
+
+            try:
+                existing = (
+                    await element.input_value()
+                )
+
+                if existing.strip():
+                    remember_filled(
                         field_name
                     )
 
-                    continue
+                    return True
 
-                except Exception:
-                    try:
-                        await element.select_option(
-                            value=value
-                        )
-
-                        filled.append(
-                            field_name
-                        )
-
-                        continue
-
-                    except Exception:
-                        skipped.append(
-                            context
-                        )
-
-                        continue
+            except Exception:
+                pass
 
             try:
                 await element.fill(
                     str(value)
                 )
 
-                filled.append(
+                existing = (
+                    await element.input_value()
+                )
+
+                if existing.strip():
+                    remember_filled(
+                        field_name
+                    )
+
+                    return True
+
+            except Exception:
+                pass
+
+            # React / custom controlled input fallback
+            try:
+                await element.evaluate(
+                    """
+                    (el, value) => {
+                        const proto =
+                            Object.getPrototypeOf(
+                                el
+                            );
+
+                        const descriptor =
+                            Object.getOwnPropertyDescriptor(
+                                proto,
+                                'value'
+                            );
+
+                        if (
+                            descriptor
+                            &&
+                            descriptor.set
+                        ) {
+                            descriptor.set.call(
+                                el,
+                                value
+                            );
+                        } else {
+                            el.value = value;
+                        }
+
+                        el.dispatchEvent(
+                            new Event(
+                                'input',
+                                {
+                                    bubbles: true
+                                }
+                            )
+                        );
+
+                        el.dispatchEvent(
+                            new Event(
+                                'change',
+                                {
+                                    bubbles: true
+                                }
+                            )
+                        );
+
+                        el.dispatchEvent(
+                            new Event(
+                                'blur',
+                                {
+                                    bubbles: true
+                                }
+                            )
+                        );
+                    }
+                    """,
+                    str(value),
+                )
+
+                remember_filled(
                     field_name
                 )
 
+                return True
+
             except Exception:
-                skipped.append(
-                    context
+                continue
+
+        return False
+
+
+    async def fill_field(
+        field_name,
+        value,
+        patterns,
+        selectors,
+    ):
+        if not value:
+            remember_skipped(
+                (
+                    f"{field_name}: "
+                    "no saved value"
+                )
+            )
+
+            return False
+
+        for pattern in patterns:
+            try:
+                if await try_fill(
+                    scope.get_by_role(
+                        "textbox",
+                        name=re.compile(
+                            pattern,
+                            re.IGNORECASE,
+                        ),
+                    ),
+                    value,
+                    field_name,
+                ):
+                    return True
+
+            except Exception:
+                pass
+
+        for pattern in patterns:
+            try:
+                if await try_fill(
+                    scope.get_by_label(
+                        re.compile(
+                            pattern,
+                            re.IGNORECASE,
+                        )
+                    ),
+                    value,
+                    field_name,
+                ):
+                    return True
+
+            except Exception:
+                pass
+
+        for selector in selectors:
+            try:
+                if await try_fill(
+                    scope.locator(
+                        selector
+                    ),
+                    value,
+                    field_name,
+                ):
+                    return True
+
+            except Exception:
+                pass
+
+        remember_skipped(
+            (
+                f"{field_name}: "
+                "field not matched"
+            )
+        )
+
+        return False
+
+
+    # -------------------------------------------------
+    # PREFERRED NAME
+    # -------------------------------------------------
+
+    await fill_field(
+        "Preferred first name",
+        request.first_name,
+        [
+            r"^\s*preferred\s+first\s+name\b",
+            r"^\s*preferred\s+name\b",
+        ],
+        [
+            'input[name*="preferred" i]',
+            'input[id*="preferred" i]',
+        ],
+    )
+
+
+    # -------------------------------------------------
+    # FIRST NAME
+    # -------------------------------------------------
+
+    await fill_field(
+        "First name",
+        request.first_name,
+        [
+            r"^\s*first\s+name\b",
+            r"^\s*given\s+name\b",
+        ],
+        [
+            'input[id="first_name" i]',
+            'input[name="first_name" i]',
+            'input[autocomplete="given-name"]',
+            'input[name*="first_name" i]',
+            'input[id*="first_name" i]',
+        ],
+    )
+
+
+    # -------------------------------------------------
+    # LAST NAME
+    # -------------------------------------------------
+
+    await fill_field(
+        "Last name",
+        request.last_name,
+        [
+            r"^\s*last\s+name\b",
+            r"^\s*surname\b",
+            r"^\s*family\s+name\b",
+        ],
+        [
+            'input[id="last_name" i]',
+            'input[name="last_name" i]',
+            'input[autocomplete="family-name"]',
+            'input[name*="last_name" i]',
+            'input[id*="last_name" i]',
+        ],
+    )
+
+
+    # -------------------------------------------------
+    # FULL NAME
+    # -------------------------------------------------
+
+    full_name = (
+        request.full_name
+        or (
+            f"{request.first_name} "
+            f"{request.last_name}"
+        ).strip()
+    )
+
+    await fill_field(
+        "Full name",
+        full_name,
+        [
+            r"^\s*full\s+name\b",
+            r"^\s*name\s*\*?\s*$",
+        ],
+        [
+            'input[autocomplete="name"]',
+            'input[name="name" i]',
+            'input[id="name" i]',
+            'input[name*="systemfield_name" i]',
+            'input[id*="systemfield_name" i]',
+        ],
+    )
+
+
+    # -------------------------------------------------
+    # EMAIL
+    # -------------------------------------------------
+
+    await fill_field(
+        "Email",
+        request.email,
+        [
+            r"^\s*email\b",
+            r"^\s*email\s+address\b",
+        ],
+        [
+            'input[id="email" i]',
+            'input[name="email" i]',
+            'input[type="email"]',
+            'input[autocomplete="email"]',
+            'input[name*="email" i]',
+            'input[id*="email" i]',
+        ],
+    )
+
+
+    # -------------------------------------------------
+    # PHONE
+    # -------------------------------------------------
+
+    await fill_field(
+        "Phone",
+        request.phone,
+        [
+            r"^\s*phone\b",
+            r"^\s*telephone\b",
+            r"^\s*mobile\b",
+        ],
+        [
+            'input[id="phone" i]',
+            'input[name="phone" i]',
+            'input[type="tel"]',
+            'input[autocomplete="tel"]',
+            'input[name*="phone" i]',
+            'input[id*="phone" i]',
+        ],
+    )
+
+
+    # =================================================
+    # COUNTRY
+    # =================================================
+
+    country_done = False
+
+    if request.country:
+        country_patterns = [
+            r"^\s*country\s*\*?\s*$",
+            r"country\s+of\s+residence",
+            r"current\s+country\s+of\s+residence",
+        ]
+
+        # ---------------------------------------------
+        # NORMAL SELECT
+        # ---------------------------------------------
+
+        for pattern in country_patterns:
+            try:
+                locator = (
+                    scope.get_by_label(
+                        re.compile(
+                            pattern,
+                            re.IGNORECASE,
+                        )
+                    )
                 )
 
-        except Exception:
-            continue
+                count = (
+                    await locator.count()
+                )
 
-    # Give React-style forms time to process
-    # their input/change events.
-    await page.wait_for_timeout(
-        800
-    )
+                for index in range(
+                    min(
+                        count,
+                        10,
+                    )
+                ):
+                    element = (
+                        locator.nth(
+                            index
+                        )
+                    )
+
+                    try:
+                        tag_name = (
+                            await element.evaluate(
+                                "(el) => "
+                                "el.tagName.toLowerCase()"
+                            )
+                        )
+
+                    except Exception:
+                        tag_name = ""
+
+                    if tag_name != "select":
+                        continue
+
+                    try:
+                        await element.select_option(
+                            label=
+                                request.country
+                        )
+
+                        remember_filled(
+                            "Country"
+                        )
+
+                        country_done = True
+
+                        break
+
+                    except Exception:
+                        try:
+                            await element.select_option(
+                                value=
+                                    request.country
+                            )
+
+                            remember_filled(
+                                "Country"
+                            )
+
+                            country_done = True
+
+                            break
+
+                        except Exception:
+                            pass
+
+                if country_done:
+                    break
+
+            except Exception:
+                pass
+
+
+        # ---------------------------------------------
+        # GREENHOUSE / CUSTOM COMBOBOX
+        # ---------------------------------------------
+
+        if not country_done:
+            try:
+                country_input = (
+                    scope.locator(
+                        'input[id="country"]'
+                    )
+                )
+
+                if (
+                    await country_input.count()
+                    > 0
+                ):
+                    element = (
+                        country_input.first
+                    )
+
+                    await element.click()
+
+                    try:
+                        await element.fill(
+                            request.country
+                        )
+
+                    except Exception:
+                        pass
+
+                    try:
+                        option = (
+                            scope.get_by_role(
+                                "option",
+                                name=re.compile(
+                                    rf"^\s*"
+                                    rf"{re.escape(request.country)}"
+                                    rf"\s*$",
+                                    re.IGNORECASE,
+                                ),
+                            )
+                        )
+
+                        if (
+                            await option.count()
+                            > 0
+                        ):
+                            await option.first.click()
+
+                            remember_filled(
+                                "Country"
+                            )
+
+                            country_done = True
+
+                    except Exception:
+                        pass
+
+            except Exception:
+                pass
+
+
+        if not country_done:
+            for pattern in country_patterns:
+                try:
+                    combo = (
+                        scope.get_by_role(
+                            "combobox",
+                            name=re.compile(
+                                pattern,
+                                re.IGNORECASE,
+                            ),
+                        )
+                    )
+
+                    if (
+                        await combo.count()
+                        == 0
+                    ):
+                        continue
+
+                    element = (
+                        combo.first
+                    )
+
+                    await element.click()
+
+                    try:
+                        await element.fill(
+                            request.country
+                        )
+
+                    except Exception:
+                        pass
+
+                    option = (
+                        scope.get_by_text(
+                            re.compile(
+                                rf"^\s*"
+                                rf"{re.escape(request.country)}"
+                                rf"\s*$",
+                                re.IGNORECASE,
+                            )
+                        )
+                    )
+
+                    if (
+                        await option.count()
+                        > 0
+                    ):
+                        await option.last.click()
+
+                        remember_filled(
+                            "Country"
+                        )
+
+                        country_done = True
+
+                        break
+
+                except Exception:
+                    pass
+
+
+        if not country_done:
+            remember_skipped(
+                "Country: field not matched"
+            )
+
 
     return {
         "filled":
-            list(
-                dict.fromkeys(
-                    filled
-                )
-            ),
+            filled,
 
         "skipped":
-            list(
-                dict.fromkeys(
-                    skipped
-                )
-            ),
+            skipped,
     }
 
 
+# =========================================================
+# RESUME UPLOAD
+# =========================================================
+
 async def upload_resume(
-    page: Page,
+    scope,
     role_type,
 ):
     resume_path = (
@@ -1605,13 +2191,20 @@ async def upload_resume(
 
     if resume_path is None:
         return {
-            "uploaded": False,
+            "uploaded":
+                False,
+
             "reason":
-                "Configured resume could not be found.",
+                (
+                    "Configured resume "
+                    "could not be found."
+                ),
         }
 
-    file_inputs = page.locator(
-        'input[type="file"]'
+    file_inputs = (
+        scope.locator(
+            'input[type="file"]'
+        )
     )
 
     count = (
@@ -1620,14 +2213,24 @@ async def upload_resume(
 
     if count == 0:
         return {
-            "uploaded": False,
+            "uploaded":
+                False,
+
             "reason":
-                "No resume upload field was detected.",
+                (
+                    "No resume upload "
+                    "field was detected."
+                ),
         }
 
-    for index in range(count):
+    # Try to identify resume field
+    for index in range(
+        count
+    ):
         element = (
-            file_inputs.nth(index)
+            file_inputs.nth(
+                index
+            )
         )
 
         context = (
@@ -1636,13 +2239,13 @@ async def upload_resume(
             )
         )
 
-        if any(
-            keyword in context
-            for keyword in [
+        if contains_any(
+            context,
+            [
                 "resume",
                 "cv",
                 "curriculum",
-            ]
+            ],
         ):
             try:
                 await element.set_input_files(
@@ -1652,53 +2255,77 @@ async def upload_resume(
                 )
 
                 return {
-                    "uploaded": True,
+                    "uploaded":
+                        True,
+
                     "filename":
                         resume_path.name,
                 }
 
             except Exception as error:
                 return {
-                    "uploaded": False,
+                    "uploaded":
+                        False,
+
                     "reason":
                         str(error),
                 }
 
-    if count == 1:
-        try:
-            await (
-                file_inputs.first
-                .set_input_files(
+
+    # Greenhouse often places Resume first
+    if count >= 1:
+        first = (
+            file_inputs.first
+        )
+
+        first_context = (
+            await get_field_context(
+                first
+            )
+        )
+
+        if (
+            "cover" not in first_context
+            and "letter" not in first_context
+        ):
+            try:
+                await first.set_input_files(
                     str(
                         resume_path
                     )
                 )
-            )
 
-            return {
-                "uploaded": True,
-                "filename":
-                    resume_path.name,
-            }
+                return {
+                    "uploaded":
+                        True,
 
-        except Exception as error:
-            return {
-                "uploaded": False,
-                "reason": str(error),
-            }
+                    "filename":
+                        resume_path.name,
+                }
+
+            except Exception:
+                pass
+
 
     return {
-        "uploaded": False,
+        "uploaded":
+            False,
+
         "reason":
             (
-                "Multiple upload fields detected "
-                "and Roleza could not safely identify "
-                "the resume field."
+                "Roleza could not safely "
+                "identify the resume field."
             ),
     }
 
 
-@router.get("/test")
+# =========================================================
+# TEST
+# =========================================================
+
+@router.get(
+    "/test"
+)
 async def test_browser():
     async with (
         async_playwright()
@@ -1718,19 +2345,29 @@ async def test_browser():
 
         await page.goto(
             "https://example.com",
-            wait_until="domcontentloaded",
+            wait_until=
+                "domcontentloaded",
             timeout=30000,
         )
 
-        title = await page.title()
+        title = (
+            await page.title()
+        )
 
         await browser.close()
 
     return {
-        "success": True,
-        "title": title,
+        "success":
+            True,
+
+        "title":
+            title,
     }
 
+
+# =========================================================
+# INSPECT APPLICATION
+# =========================================================
 
 @router.post(
     "/inspect-application"
@@ -1743,7 +2380,8 @@ async def inspect_application(
     ):
         raise HTTPException(
             status_code=400,
-            detail="Invalid job URL.",
+            detail=
+                "Invalid job URL.",
         )
 
     async with (
@@ -1769,7 +2407,8 @@ async def inspect_application(
         try:
             await page.goto(
                 request.job_url,
-                wait_until="domcontentloaded",
+                wait_until=
+                    "domcontentloaded",
                 timeout=45000,
             )
 
@@ -1777,7 +2416,13 @@ async def inspect_application(
                 1500
             )
 
-            original_url = page.url
+            original_url = (
+                page.url
+            )
+
+            # -----------------------------------------
+            # DEAD JOB CHECK
+            # -----------------------------------------
 
             dead = (
                 await detect_dead_job(
@@ -1785,20 +2430,38 @@ async def inspect_application(
                 )
             )
 
-            if dead["dead"]:
+            if dead[
+                "dead"
+            ]:
                 return {
-                    "success": False,
-                    "dead_job": True,
-                    "status": "Dead job",
+                    "success":
+                        False,
+
+                    "dead_job":
+                        True,
+
+                    "status":
+                        "Dead job",
+
                     "dead_job_reason":
-                        dead["reason"],
+                        dead[
+                            "reason"
+                        ],
+
                     "original_url":
                         original_url,
+
                     "current_url":
                         page.url,
+
                     "recommended_action":
                         "Remove from results",
                 }
+
+
+            # -----------------------------------------
+            # FOLLOW REAL ATS
+            # -----------------------------------------
 
             application_result = (
                 await click_apply_and_follow(
@@ -1813,8 +2476,30 @@ async def inspect_application(
             )
 
             await page.wait_for_timeout(
-                1500
+                2000
             )
+
+
+            # -----------------------------------------
+            # FIND APPLICATION FRAME
+            # -----------------------------------------
+
+            scope_result = (
+                await wait_for_application_scope(
+                    page
+                )
+            )
+
+            application_scope = (
+                scope_result[
+                    "scope"
+                ]
+            )
+
+
+            # -----------------------------------------
+            # DEAD JOB AGAIN
+            # -----------------------------------------
 
             dead = (
                 await detect_dead_job(
@@ -1822,28 +2507,48 @@ async def inspect_application(
                 )
             )
 
-            if dead["dead"]:
+            if dead[
+                "dead"
+            ]:
                 return {
-                    "success": False,
-                    "dead_job": True,
-                    "status": "Dead job",
+                    "success":
+                        False,
+
+                    "dead_job":
+                        True,
+
+                    "status":
+                        "Dead job",
+
                     "dead_job_reason":
-                        dead["reason"],
+                        dead[
+                            "reason"
+                        ],
+
                     "original_url":
                         original_url,
+
                     "current_url":
                         page.url,
+
                     "application_form_opened":
                         application_result[
                             "opened"
                         ],
+
                     "new_tab_opened":
                         application_result[
                             "new_tab"
                         ],
+
                     "recommended_action":
                         "Remove from results",
                 }
+
+
+            # -----------------------------------------
+            # BLOCKERS
+            # -----------------------------------------
 
             captcha = (
                 await detect_captcha(
@@ -1857,9 +2562,14 @@ async def inspect_application(
                 )
             )
 
+
+            # -----------------------------------------
+            # INSPECT ACTUAL APPLICATION SCOPE
+            # -----------------------------------------
+
             fields = (
                 await inspect_fields(
-                    page
+                    application_scope
                 )
             )
 
@@ -1871,30 +2581,48 @@ async def inspect_application(
                 )
             )
 
-            if summary[
-                "hard_blockers"
-            ]:
+
+            # -----------------------------------------
+            # RECOMMENDED ACTION
+            # -----------------------------------------
+
+            if not fields:
                 action = (
                     "Human action required"
                 )
 
-            elif summary[
-                "user_decisions"
-            ]:
+            elif (
+                summary[
+                    "hard_blockers"
+                ]
+            ):
+                action = (
+                    "Human action required"
+                )
+
+            elif (
+                summary[
+                    "user_decisions"
+                ]
+            ):
                 action = (
                     "User answers required"
                 )
 
-            elif summary[
-                "unknown_required_fields"
-            ]:
+            elif (
+                summary[
+                    "unknown_required_fields"
+                ]
+            ):
                 action = (
                     "Review unknown required fields"
                 )
 
-            elif summary[
-                "draftable_questions"
-            ]:
+            elif (
+                summary[
+                    "draftable_questions"
+                ]
+            ):
                 action = (
                     "Roleza can draft answers for review"
                 )
@@ -1904,13 +2632,29 @@ async def inspect_application(
                     "Safe to prepare application"
                 )
 
+
             return {
-                "success": True,
-                "dead_job": False,
+                "success":
+                    True,
+
+                "dead_job":
+                    False,
+
                 "original_url":
                     original_url,
+
                 "current_url":
                     page.url,
+
+                "application_scope_url":
+                    scope_result[
+                        "scope_url"
+                    ],
+
+                "application_in_iframe":
+                    scope_result[
+                        "is_frame"
+                    ],
 
                 "application_form_opened":
                     application_result[
@@ -1929,7 +2673,9 @@ async def inspect_application(
                     login_wall,
 
                 "fields_detected":
-                    len(fields),
+                    len(
+                        fields
+                    ),
 
                 "summary":
                     summary,
@@ -1938,15 +2684,24 @@ async def inspect_application(
                     action,
             }
 
+
         except Exception as error:
             raise HTTPException(
                 status_code=500,
-                detail=str(error),
+                detail=
+                    str(
+                        error
+                    ),
             )
+
 
         finally:
             await browser.close()
 
+
+# =========================================================
+# PREPARE APPLICATION
+# =========================================================
 
 @router.post(
     "/start-application"
@@ -1965,8 +2720,10 @@ async def start_application(
     ):
         raise HTTPException(
             status_code=400,
-            detail="Invalid job URL.",
+            detail=
+                "Invalid job URL.",
         )
+
 
     async with (
         async_playwright()
@@ -1988,10 +2745,12 @@ async def start_application(
             await context.new_page()
         )
 
+
         try:
             await page.goto(
                 request.job_url,
-                wait_until="domcontentloaded",
+                wait_until=
+                    "domcontentloaded",
                 timeout=45000,
             )
 
@@ -1999,23 +2758,46 @@ async def start_application(
                 1500
             )
 
+
+            # -----------------------------------------
+            # DEAD JOB
+            # -----------------------------------------
+
             dead = (
                 await detect_dead_job(
                     page
                 )
             )
 
-            if dead["dead"]:
+            if dead[
+                "dead"
+            ]:
                 return {
-                    "success": False,
-                    "dead_job": True,
-                    "status": "Dead job",
+                    "success":
+                        False,
+
+                    "dead_job":
+                        True,
+
+                    "status":
+                        "Dead job",
+
                     "dead_job_reason":
-                        dead["reason"],
+                        dead[
+                            "reason"
+                        ],
+
                     "current_url":
                         page.url,
-                    "submitted": False,
+
+                    "submitted":
+                        False,
                 }
+
+
+            # -----------------------------------------
+            # FOLLOW ATS
+            # -----------------------------------------
 
             application_result = (
                 await click_apply_and_follow(
@@ -2030,8 +2812,30 @@ async def start_application(
             )
 
             await page.wait_for_timeout(
-                1500
+                2000
             )
+
+
+            # -----------------------------------------
+            # FIND REAL FORM / IFRAME
+            # -----------------------------------------
+
+            scope_result = (
+                await wait_for_application_scope(
+                    page
+                )
+            )
+
+            application_scope = (
+                scope_result[
+                    "scope"
+                ]
+            )
+
+
+            # -----------------------------------------
+            # DEAD JOB AGAIN
+            # -----------------------------------------
 
             dead = (
                 await detect_dead_job(
@@ -2039,21 +2843,36 @@ async def start_application(
                 )
             )
 
-            if dead["dead"]:
+            if dead[
+                "dead"
+            ]:
                 return {
-                    "success": False,
-                    "dead_job": True,
-                    "status": "Dead job",
+                    "success":
+                        False,
+
+                    "dead_job":
+                        True,
+
+                    "status":
+                        "Dead job",
+
                     "dead_job_reason":
-                        dead["reason"],
+                        dead[
+                            "reason"
+                        ],
+
                     "current_url":
                         page.url,
+
                     "new_tab_opened":
                         application_result[
                             "new_tab"
                         ],
-                    "submitted": False,
+
+                    "submitted":
+                        False,
                 }
+
 
             captcha = (
                 await detect_captcha(
@@ -2067,9 +2886,10 @@ async def start_application(
                 )
             )
 
+
             fields = (
                 await inspect_fields(
-                    page
+                    application_scope
                 )
             )
 
@@ -2081,16 +2901,24 @@ async def start_application(
                 )
             )
 
-            if summary[
-                "hard_blockers"
-            ]:
+
+            # -----------------------------------------
+            # FORM MISSING / LOGIN
+            # -----------------------------------------
+
+            if (
+                not fields
+                or login_wall
+            ):
                 return {
-                    "success": False,
+                    "success":
+                        False,
 
                     "status":
                         "Needs human action",
 
-                    "dead_job": False,
+                    "dead_job":
+                        False,
 
                     "hard_blockers":
                         summary[
@@ -2120,6 +2948,16 @@ async def start_application(
                     "current_url":
                         page.url,
 
+                    "application_scope_url":
+                        scope_result[
+                            "scope_url"
+                        ],
+
+                    "application_in_iframe":
+                        scope_result[
+                            "is_frame"
+                        ],
+
                     "new_tab_opened":
                         application_result[
                             "new_tab"
@@ -2129,52 +2967,102 @@ async def start_application(
                         False,
                 }
 
+
+            # =================================================
+            # IMPORTANT:
+            #
+            # CAPTCHA DOES NOT STOP PREPARATION.
+            #
+            # Roleza may safely fill name/email/phone/country/
+            # resume.
+            #
+            # It still NEVER solves/bypasses CAPTCHA
+            # and NEVER submits through CAPTCHA.
+            # =================================================
+
+
             fill_result = (
                 await safe_fill(
-                    page,
+                    application_scope,
                     request,
                 )
             )
 
+
             resume_result = (
                 await upload_resume(
-                    page,
+                    application_scope,
                     request.role_type,
                 )
             )
+
 
             await page.wait_for_timeout(
                 1500
             )
 
+
             fields_after = (
                 await inspect_fields(
-                    page
+                    application_scope
                 )
             )
+
 
             summary_after = (
                 build_field_summary(
                     fields_after,
-                    False,
-                    False,
+                    captcha,
+                    login_wall,
                 )
             )
 
+
+            if captcha:
+                status = (
+                    "Prepared - human verification required"
+                )
+
+            else:
+                status = (
+                    "Prepared for review"
+                )
+
+
             return {
-                "success": True,
+                "success":
+                    True,
 
                 "status":
-                    "Prepared for review",
+                    status,
 
-                "dead_job": False,
+                "dead_job":
+                    False,
 
                 "current_url":
                     page.url,
 
+                "application_scope_url":
+                    scope_result[
+                        "scope_url"
+                    ],
+
+                "application_in_iframe":
+                    scope_result[
+                        "is_frame"
+                    ],
+
                 "new_tab_opened":
                     application_result[
                         "new_tab"
+                    ],
+
+                "captcha_detected":
+                    captcha,
+
+                "hard_blockers":
+                    summary_after[
+                        "hard_blockers"
                     ],
 
                 "filled_fields":
@@ -2210,8 +3098,10 @@ async def start_application(
                         "unknown_required_fields"
                     ],
 
-                "submitted": False,
+                "submitted":
+                    False,
             }
+
 
         except Exception as error:
             raise HTTPException(
@@ -2222,17 +3112,21 @@ async def start_application(
                 ),
             )
 
+
         finally:
             # Temporary debugging:
-            # leave browser open for 60 seconds.
+            # leave browser visible
+            # for 60 seconds.
             try:
                 await page.wait_for_timeout(
                     60000
                 )
+
             except Exception:
                 pass
 
             try:
                 await browser.close()
+
             except Exception:
                 pass
