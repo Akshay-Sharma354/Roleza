@@ -45,6 +45,22 @@ AI_SEARCH_QUERIES = [
     "Associate AI Engineer",
 ]
 
+AI_TRAINING_QUERIES = [
+    "AI Trainer",
+    "LLM Trainer",
+    "AI Evaluator",
+    "AI Response Evaluator",
+    "Prompt Evaluator",
+    "Generative AI Evaluator",
+    "AI Data Trainer",
+    "Coding AI Trainer",
+    "Software Engineer AI Training",
+    "AI Coding Evaluator",
+    "AI Model Evaluator",
+    "LLM Evaluator",
+    "AI Content Evaluator",
+]
+
 BDM_SEARCH_QUERIES = [
     "US IT Recruiter",
     "Technical Recruiter",
@@ -62,16 +78,6 @@ BDM_SEARCH_QUERIES = [
     "Recruitment Business Development",
     "Staffing Business Development",
     "BDM US Staffing",
-]
-
-TARGET_LOCATIONS = [
-    "Remote",
-    "Remote India",
-    "Noida",
-    "Gurgaon",
-    "Gurugram",
-    "Delhi",
-    "Delhi NCR",
 ]
 
 
@@ -113,6 +119,13 @@ AI_TITLE_KEYWORDS = [
     "ai testing engineer",
     "llm trainer",
     "ai trainer",
+    "ai evaluator",
+    "prompt evaluator",
+    "ai response evaluator",
+    "generative ai evaluator",
+    "ai coding evaluator",
+    "coding ai trainer",
+    "software engineer ai training",
     "nlp engineer",
     "applied ai engineer",
     "ai researcher",
@@ -192,6 +205,12 @@ AI_CONTEXT_KEYWORDS = [
     "react",
     "api",
     "apis",
+    "ai training",
+    "ai trainer",
+    "model evaluation",
+    "ai evaluation",
+    "prompt evaluation",
+    "response evaluation",
 ]
 
 REMOTE_KEYWORDS = [
@@ -512,11 +531,6 @@ def classify_job(
 
         return "AI"
 
-    # Special case:
-    # Some current AI jobs use titles like
-    # "Operator", "Builder", "Automation Generalist".
-    # We allow them only when the description
-    # strongly mentions AI/Claude/LLMs.
     ai_soft_title_words = [
         "operator",
         "builder",
@@ -530,6 +544,7 @@ def classify_job(
         "testing",
         "evaluation",
         "trainer",
+        "evaluator",
     ]
 
     if (
@@ -777,7 +792,7 @@ def arbeitnow_identity_conflict(
 
 
 # =========================================================
-# CURATED INDIA JOB SEARCH SOURCES
+# INDIA JOB SEARCH SOURCES
 # =========================================================
 
 def build_indeed_url(
@@ -868,22 +883,18 @@ def create_search_card(
 ):
     created_at = now_epoch()
 
-    title = (
-        f"{query} jobs"
-    )
+    title = f"{query} jobs"
 
-    company = (
-        f"{source} Search"
-    )
+    company = f"{source} Search"
 
     if role_type == "AI":
         description = (
             f"Search {source} for fresh {query} roles in {location}. "
             "This is a high-priority Roleza search card for AI, Claude, "
-            "Prompt Engineering, LLM, Agentic AI, and AI automation jobs. "
-            "Open the job board, choose a real listing, and when it opens "
-            "an external company or ATS page, use Roleza to inspect and "
-            "prepare the application."
+            "Prompt Engineering, LLM, Agentic AI, AI evaluation, AI training, "
+            "and AI automation jobs. Open the job board, choose a real listing, "
+            "and when it opens an external company or ATS page, use Roleza to "
+            "inspect and prepare the application."
         )
     else:
         description = (
@@ -937,11 +948,7 @@ def create_search_card(
             location,
 
         "work_mode":
-            (
-                "Remote"
-                if remote
-                else "Search"
-            ),
+            "Remote" if remote else "Search",
 
         "remote":
             True,
@@ -979,6 +986,135 @@ def create_search_card(
     }
 
 
+# =========================================================
+# AI TRAINING / EVALUATION SOURCES
+# =========================================================
+
+def create_ai_training_platform_card(
+    source: str,
+    query: str,
+    url: str,
+    source_priority: int,
+):
+    created_at = now_epoch()
+
+    description = (
+        f"Open {source} and look for {query} roles. "
+        "These are AI training, AI evaluation, prompt evaluation, LLM trainer, "
+        "coding evaluator, and model quality roles. They are useful for getting "
+        "paid AI-related work faster while continuing to apply for full-time AI jobs. "
+        "Apply manually on the platform and track successful applications in Roleza."
+    )
+
+    return {
+        "external_id":
+            f"ai-training:{source}:{query}",
+
+        "role_type":
+            "AI",
+
+        "title":
+            f"{query} roles",
+
+        "company":
+            f"{source} Platform",
+
+        "source":
+            source,
+
+        "posted":
+            "Check today",
+
+        "created_at":
+            created_at + source_priority,
+
+        "location":
+            "Remote / Global",
+
+        "work_mode":
+            "Remote",
+
+        "remote":
+            True,
+
+        "remote_eligibility":
+            "Worldwide",
+
+        "experience":
+            "AI training / evaluation",
+
+        "description":
+            description[:1200],
+
+        "full_description":
+            description,
+
+        "tags":
+            [
+                "AI",
+                "AI Training",
+                "AI Evaluation",
+                "LLM Trainer",
+                "Remote",
+                source,
+            ],
+
+        "job_url":
+            url,
+
+        "requires_human_review":
+            False,
+
+        "is_search_card":
+            True,
+
+        "is_training_platform":
+            True,
+    }
+
+
+def fetch_ai_training_platform_cards():
+    cards = []
+
+    platforms = [
+        {
+            "source": "Alignerr",
+            "url": "https://app.alignerr.com/home",
+            "priority": 700,
+        },
+        {
+            "source": "Outlier AI",
+            "url": "https://outlier.ai/",
+            "priority": 680,
+        },
+        {
+            "source": "DataAnnotation",
+            "url": "https://www.dataannotation.tech/",
+            "priority": 660,
+        },
+        {
+            "source": "Turing",
+            "url": "https://www.turing.com/jobs",
+            "priority": 640,
+        },
+    ]
+
+    top_queries = AI_TRAINING_QUERIES[:8]
+
+    for platform in platforms:
+        for query in top_queries:
+            cards.append(
+                create_ai_training_platform_card(
+                    source=platform["source"],
+                    query=query,
+                    url=platform["url"],
+                    source_priority=platform["priority"],
+                )
+            )
+
+    return cards
+
+
 def fetch_india_search_cards():
     cards = []
 
@@ -1005,7 +1141,6 @@ def fetch_india_search_cards():
         "Delhi NCR",
     ]
 
-    # Keep this intentionally limited so the UI does not explode.
     top_ai_queries = AI_SEARCH_QUERIES[:14]
     top_bdm_queries = BDM_SEARCH_QUERIES[:12]
 
@@ -1229,8 +1364,6 @@ def normalize_arbeitnow_job(
         else "Not remote"
     )
 
-    # Arbeitnow is now backup only.
-    # Reject unknown foreign remote listings early.
     if (
         remote
         and remote_eligibility
@@ -1269,11 +1402,7 @@ def normalize_arbeitnow_job(
             location,
 
         "work_mode":
-            (
-                "Remote"
-                if remote
-                else "On-site / Hybrid"
-            ),
+            "Remote" if remote else "On-site / Hybrid",
 
         "remote":
             remote,
@@ -1645,9 +1774,16 @@ def fetch_all_live_jobs():
     all_jobs = []
     source_errors = []
 
-    # Priority source: India-focused search cards.
-    # These are safe discovery cards for portals where
-    # direct scraping/automation should not be the first step.
+    try:
+        all_jobs.extend(
+            fetch_ai_training_platform_cards()
+        )
+
+    except Exception as error:
+        source_errors.append(
+            f"AI Training Platforms: {error}"
+        )
+
     try:
         all_jobs.extend(
             fetch_india_search_cards()
@@ -1658,8 +1794,6 @@ def fetch_all_live_jobs():
             f"India Search Cards: {error}"
         )
 
-    # Existing company/ATS sources remain useful because
-    # Roleza can inspect and prepare external ATS applications.
     try:
         greenhouse_result = fetch_greenhouse_jobs()
 
@@ -1706,7 +1840,6 @@ def fetch_all_live_jobs():
             f"Company Watchlist: {error}"
         )
 
-    # Low-priority backups only.
     try:
         all_jobs.extend(
             fetch_arbeitnow_jobs(
@@ -1760,6 +1893,10 @@ def fetch_all_live_jobs():
             source_errors,
 
         "sources": [
+            "Alignerr",
+            "Outlier AI",
+            "DataAnnotation",
+            "Turing",
             "Indeed India",
             "Naukri",
             "LinkedIn",
