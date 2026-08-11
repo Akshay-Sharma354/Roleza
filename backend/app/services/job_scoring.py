@@ -39,18 +39,25 @@ AI_PROFILE_SKILLS = {
         "agentic ai",
         "agentic workflow",
         "agentic workflows",
+        "agent orchestration",
+        "ai orchestration",
     ],
     "Prompt Engineering": [
         "prompt engineering",
         "prompt design",
+        "prompting",
+        "prompt engineer",
+        "prompt decomposition",
     ],
     "Anthropic / Claude": [
         "anthropic",
         "claude",
+        "claude code",
     ],
     "OpenAI": [
         "openai",
         "gpt",
+        "chatgpt",
     ],
     "APIs": [
         "api",
@@ -62,6 +69,7 @@ AI_PROFILE_SKILLS = {
         "automation",
         "automations",
         "workflow automation",
+        "ai automation",
     ],
     "Document AI": [
         "document analysis",
@@ -73,22 +81,62 @@ AI_PROFILE_SKILLS = {
         "nlp",
         "natural language processing",
     ],
+    "AI Testing / Evaluation": [
+        "ai testing",
+        "ai evaluation",
+        "evaluate ai",
+        "model evaluation",
+        "llm evaluation",
+        "quality assurance",
+        "qa testing",
+    ],
+    "AI Product Building": [
+        "build features",
+        "feature requirements",
+        "ship features",
+        "product requirements",
+        "ai product",
+        "ai-native",
+        "ai native",
+    ],
 }
 
 
 AI_STRONG_TITLE_KEYWORDS = [
+    "claude code operator",
+    "claude operator",
+    "ai operator",
     "ai engineer",
     "artificial intelligence engineer",
     "generative ai engineer",
     "genai engineer",
     "ai developer",
     "ai automation engineer",
+    "ai automation specialist",
+    "ai automation generalist",
     "applied ai engineer",
     "ai associate",
     "ai specialist",
     "llm engineer",
+    "llm application engineer",
     "agentic ai engineer",
+    "ai agent engineer",
+    "junior ai agent engineer",
     "prompt engineer",
+    "prompt engineering specialist",
+    "ai workflow engineer",
+    "ai workflow specialist",
+    "ai implementation specialist",
+    "ai integration engineer",
+    "ai solutions engineer",
+    "ai technical specialist",
+    "ai technical consultant",
+    "ai product specialist",
+    "ai testing engineer",
+    "ai evaluation specialist",
+    "ai native builder",
+    "ai-native builder",
+    "ai systems builder",
 ]
 
 
@@ -101,6 +149,31 @@ AI_RELEVANT_TITLE_KEYWORDS = [
     "ai researcher",
     "research engineer",
     "machine learning scientist",
+    "automation engineer",
+    "automation specialist",
+    "workflow specialist",
+    "technical consultant",
+    "solutions engineer",
+    "implementation specialist",
+    "product specialist",
+    "llm trainer",
+    "ai trainer",
+]
+
+
+AI_FAST_APPLY_TITLE_BONUS = [
+    "claude",
+    "operator",
+    "prompt",
+    "agent",
+    "agentic",
+    "automation",
+    "workflow",
+    "llm",
+    "ai testing",
+    "ai evaluation",
+    "ai native",
+    "ai-native",
 ]
 
 
@@ -118,6 +191,7 @@ BDM_PROFILE_SKILLS = {
         "us staffing",
         "us recruitment",
         "us recruiter",
+        "us technical recruiter",
     ],
     "Technical Recruiting": [
         "technical recruiter",
@@ -125,14 +199,28 @@ BDM_PROFILE_SKILLS = {
         "it recruiter",
         "it recruitment",
     ],
+    "Talent Acquisition": [
+        "talent acquisition",
+        "ta specialist",
+        "ta executive",
+        "recruitment specialist",
+        "recruitment executive",
+    ],
     "Candidate Sourcing": [
         "candidate sourcing",
         "sourcing candidates",
         "talent sourcing",
+        "sourcing specialist",
     ],
     "Staffing": [
         "staffing",
         "staffing industry",
+        "us staffing",
+    ],
+    "Bench Sales": [
+        "bench sales",
+        "bench sales recruiter",
+        "bench marketing",
     ],
     "Account Management": [
         "account management",
@@ -172,8 +260,17 @@ BDM_STRONG_TITLE_KEYWORDS = [
     "technical recruiter",
     "it recruiter",
     "staffing recruiter",
+    "us staffing recruiter",
     "resource development manager",
     "bench sales recruiter",
+    "talent acquisition specialist",
+    "talent acquisition executive",
+    "talent acquisition lead",
+    "recruitment manager",
+    "recruitment specialist",
+    "delivery manager staffing",
+    "staffing business development",
+    "recruitment business development",
 ]
 
 
@@ -189,8 +286,8 @@ HIGHLY_SENIOR_TITLE_WORDS = [
     "vice president",
     "vp ",
     "chief ",
+    "architect",
 ]
-
 
 SENIOR_TITLE_WORDS = [
     "senior",
@@ -198,7 +295,6 @@ SENIOR_TITLE_WORDS = [
     "sr ",
     "lead ",
 ]
-
 
 VERY_HIGH_EXPERIENCE = [
     "10+ years",
@@ -211,14 +307,12 @@ VERY_HIGH_EXPERIENCE = [
     "15 years",
 ]
 
-
 HIGH_EXPERIENCE = [
     "8+ years",
     "8 years",
     "9+ years",
     "9 years",
 ]
-
 
 MID_HIGH_EXPERIENCE = [
     "6+ years",
@@ -227,14 +321,14 @@ MID_HIGH_EXPERIENCE = [
     "7 years",
 ]
 
-
 MODERATE_EXPERIENCE = [
     "5+ years",
     "5 years",
 ]
 
-
 GOOD_ENTRY_EXPERIENCE = [
+    "0-1 years",
+    "0–1 years",
     "0-2 years",
     "0–2 years",
     "1-2 years",
@@ -244,8 +338,12 @@ GOOD_ENTRY_EXPERIENCE = [
     "2 years",
     "3+ years",
     "3 years",
+    "fresher",
+    "freshers",
+    "entry level",
+    "entry-level",
+    "junior",
 ]
-
 
 JUNIOR_TITLE_WORDS = [
     "junior",
@@ -253,6 +351,8 @@ JUNIOR_TITLE_WORDS = [
     "entry level",
     "entry-level",
     "graduate",
+    "intern",
+    "trainee",
 ]
 
 
@@ -307,9 +407,7 @@ def freshness_label(age_days):
     if age_days == 1:
         return "1 day old"
 
-    return (
-        f"{age_days} days old"
-    )
+    return f"{age_days} days old"
 
 
 def find_profile_matches(
@@ -318,9 +416,7 @@ def find_profile_matches(
 ):
     matched = []
 
-    for display_name, keywords in (
-        profile_skills.items()
-    ):
+    for display_name, keywords in profile_skills.items():
         if any(
             keyword in text
             for keyword in keywords
@@ -346,13 +442,16 @@ def add_reason(
     reasons,
     message,
 ):
-    if (
-        message
-        and message not in reasons
-    ):
+    if message and message not in reasons:
         reasons.append(
             message
         )
+
+
+def is_search_card(job):
+    return bool(
+        job.get("is_search_card")
+    )
 
 
 # =========================================================
@@ -369,29 +468,45 @@ def calculate_ai_fit(job):
         or job.get("description")
     )
 
-    combined = (
-        f"{title} {description}"
+    source = normalize(
+        job.get("source")
     )
+
+    combined = f"{title} {description}"
 
     score = 0
     reasons = []
 
-    matched_skills = (
-        find_profile_matches(
-            combined,
-            AI_PROFILE_SKILLS,
-        )
+    matched_skills = find_profile_matches(
+        combined,
+        AI_PROFILE_SKILLS,
     )
 
-    # -----------------------------------------
-    # TITLE FIT
-    # -----------------------------------------
+    if is_search_card(job):
+        score += 42
+
+        add_reason(
+            reasons,
+            "High-priority AI search source",
+        )
+
+        if source in [
+            "indeed india",
+            "naukri",
+            "linkedin",
+        ]:
+            score += 14
+
+            add_reason(
+                reasons,
+                "Priority India job portal",
+            )
 
     if contains_any(
         title,
         AI_STRONG_TITLE_KEYWORDS,
     ):
-        score += 35
+        score += 38
 
         add_reason(
             reasons,
@@ -402,11 +517,11 @@ def calculate_ai_fit(job):
         title,
         AI_RELEVANT_TITLE_KEYWORDS,
     ):
-        score += 24
+        score += 26
 
         add_reason(
             reasons,
-            "Relevant AI/ML role",
+            "Relevant AI/automation role",
         )
 
     else:
@@ -417,53 +532,57 @@ def calculate_ai_fit(job):
             "Partial AI role match",
         )
 
-    # -----------------------------------------
-    # SKILL FIT
-    # -----------------------------------------
+    if contains_any(
+        title,
+        AI_FAST_APPLY_TITLE_BONUS,
+    ):
+        score += 10
+
+        add_reason(
+            reasons,
+            "Matches fast-apply AI role family",
+        )
 
     skill_score = min(
-        len(matched_skills) * 5,
-        35,
+        len(matched_skills) * 6,
+        42,
     )
 
     score += skill_score
 
     if matched_skills:
         preview = ", ".join(
-            matched_skills[:5]
+            matched_skills[:6]
         )
 
         add_reason(
             reasons,
-            (
-                f"Matched skills: "
-                f"{preview}"
-            ),
+            f"Matched skills: {preview}",
         )
 
     if len(matched_skills) >= 6:
+        score += 6
+
         add_reason(
             reasons,
             "Strong technical overlap",
         )
 
     elif len(matched_skills) >= 3:
+        score += 3
+
         add_reason(
             reasons,
             "Good technical overlap",
         )
 
-    elif len(matched_skills) <= 1:
+    elif len(matched_skills) <= 1 and not is_search_card(job):
         score -= 8
 
         add_reason(
             reasons,
             "Limited technical overlap",
         )
-
-    # -----------------------------------------
-    # CAREER LEVEL
-    # -----------------------------------------
 
     if contains_any(
         title,
@@ -502,16 +621,12 @@ def calculate_ai_fit(job):
         title,
         SENIOR_TITLE_WORDS,
     ):
-        score -= 14
+        score -= 10
 
         add_reason(
             reasons,
             "Senior role",
         )
-
-    # -----------------------------------------
-    # REQUIRED EXPERIENCE
-    # -----------------------------------------
 
     if contains_any(
         description,
@@ -550,7 +665,7 @@ def calculate_ai_fit(job):
         description,
         MODERATE_EXPERIENCE,
     ):
-        score -= 12
+        score -= 8
 
         add_reason(
             reasons,
@@ -578,23 +693,39 @@ def calculate_bdm_fit(job):
         or job.get("description")
     )
 
-    combined = (
-        f"{title} {description}"
+    source = normalize(
+        job.get("source")
     )
+
+    combined = f"{title} {description}"
 
     score = 0
     reasons = []
 
-    matched_skills = (
-        find_profile_matches(
-            combined,
-            BDM_PROFILE_SKILLS,
-        )
+    matched_skills = find_profile_matches(
+        combined,
+        BDM_PROFILE_SKILLS,
     )
 
-    # -----------------------------------------
-    # TITLE FIT
-    # -----------------------------------------
+    if is_search_card(job):
+        score += 40
+
+        add_reason(
+            reasons,
+            "High-priority BDM/recruiting search source",
+        )
+
+        if source in [
+            "indeed india",
+            "naukri",
+            "linkedin",
+        ]:
+            score += 14
+
+            add_reason(
+                reasons,
+                "Priority India job portal",
+            )
 
     if contains_any(
         title,
@@ -608,11 +739,13 @@ def calculate_bdm_fit(job):
         )
 
     elif (
-        "business development"
-        in title
+        "business development" in title
         or "recruiter" in title
+        or "recruitment" in title
+        or "talent acquisition" in title
         or "staffing" in title
         or "account manager" in title
+        or "bench sales" in title
     ):
         score += 28
 
@@ -629,10 +762,6 @@ def calculate_bdm_fit(job):
             "Partial BDM role match",
         )
 
-    # -----------------------------------------
-    # EXPERIENCE/SKILL FIT
-    # -----------------------------------------
-
     skill_score = min(
         len(matched_skills) * 5,
         35,
@@ -642,15 +771,12 @@ def calculate_bdm_fit(job):
 
     if matched_skills:
         preview = ", ".join(
-            matched_skills[:5]
+            matched_skills[:6]
         )
 
         add_reason(
             reasons,
-            (
-                f"Matched experience: "
-                f"{preview}"
-            ),
+            f"Matched experience: {preview}",
         )
 
     if len(matched_skills) >= 5:
@@ -664,10 +790,6 @@ def calculate_bdm_fit(job):
             reasons,
             "Good BDM experience overlap",
         )
-
-    # -----------------------------------------
-    # SENIORITY
-    # -----------------------------------------
 
     if contains_any(
         title,
@@ -695,16 +817,12 @@ def calculate_bdm_fit(job):
         title,
         SENIOR_TITLE_WORDS,
     ):
-        score -= 10
+        score -= 8
 
         add_reason(
             reasons,
             "Senior role",
         )
-
-    # -----------------------------------------
-    # EXPERIENCE REQUIREMENT
-    # -----------------------------------------
 
     if contains_any(
         description,
@@ -756,9 +874,7 @@ def apply_location_score(
     job,
 ):
     eligibility = normalize(
-        job.get(
-            "remote_eligibility"
-        )
+        job.get("remote_eligibility")
         or "unknown"
     )
 
@@ -766,12 +882,12 @@ def apply_location_score(
         job.get("location")
     )
 
-    # -----------------------------------------
-    # GOOD LOCATION MATCHES
-    # -----------------------------------------
+    source = normalize(
+        job.get("source")
+    )
 
     if eligibility == "india":
-        score += 18
+        score += 24
 
         add_reason(
             reasons,
@@ -779,7 +895,7 @@ def apply_location_score(
         )
 
     elif eligibility == "worldwide":
-        score += 18
+        score += 20
 
         add_reason(
             reasons,
@@ -787,22 +903,61 @@ def apply_location_score(
         )
 
     elif (
-        "india" in location
-        and "remote" in location
+        "remote india" in location
+        or (
+            "india" in location
+            and "remote" in location
+        )
     ):
-        score += 18
+        score += 24
 
         add_reason(
             reasons,
             "Remote role in India",
         )
 
+    elif any(
+        place in location
+        for place in [
+            "noida",
+            "gurgaon",
+            "gurugram",
+            "delhi",
+            "delhi ncr",
+            "ncr",
+        ]
+    ):
+        score += 22
+
+        add_reason(
+            reasons,
+            "Target NCR location",
+        )
+
     elif "india" in location:
-        score += 10
+        score += 14
 
         add_reason(
             reasons,
             "India-based role",
+        )
+
+    elif (
+        eligibility == "unknown"
+        and "remote" in location
+        and source in [
+            "indeed india",
+            "naukri",
+            "linkedin",
+            "cutshort",
+            "wellfound",
+        ]
+    ):
+        score += 6
+
+        add_reason(
+            reasons,
+            "India portal remote role needs verification",
         )
 
     elif (
@@ -816,12 +971,8 @@ def apply_location_score(
             "Remote eligibility needs verification",
         )
 
-    # -----------------------------------------
-    # HARD LOCATION RESTRICTIONS
-    # -----------------------------------------
-
     if eligibility == "us only":
-        score -= 45
+        score -= 60
 
         add_reason(
             reasons,
@@ -829,7 +980,7 @@ def apply_location_score(
         )
 
     elif eligibility == "eu/uk only":
-        score -= 45
+        score -= 60
 
         add_reason(
             reasons,
@@ -837,11 +988,19 @@ def apply_location_score(
         )
 
     elif eligibility == "emea":
-        score -= 35
+        score -= 45
 
         add_reason(
             reasons,
             "EMEA-restricted role",
+        )
+
+    elif eligibility == "relocation / onsite":
+        score -= 50
+
+        add_reason(
+            reasons,
+            "Relocation or onsite restriction",
         )
 
     return score, reasons
@@ -865,13 +1024,7 @@ def apply_application_restrictions(
         or job.get("description")
     )
 
-    combined = (
-        f"{title} {description}"
-    )
-
-    # -----------------------------------------
-    # SECURITY CLEARANCE
-    # -----------------------------------------
+    combined = f"{title} {description}"
 
     clearance_phrases = [
         "top secret clearance",
@@ -893,10 +1046,6 @@ def apply_application_restrictions(
             reasons,
             "Security clearance required",
         )
-
-    # -----------------------------------------
-    # US CITIZENSHIP / WORK AUTH
-    # -----------------------------------------
 
     citizenship_phrases = [
         "us citizenship required",
@@ -943,6 +1092,28 @@ def apply_application_restrictions(
             "Work authorization restriction",
         )
 
+    foreign_onsite_phrases = [
+        "relocation required",
+        "must relocate",
+        "relocate to",
+        "onsite only",
+        "on-site only",
+        "work from office",
+        "office based",
+        "office-based",
+    ]
+
+    if contains_any(
+        combined,
+        foreign_onsite_phrases,
+    ):
+        score -= 35
+
+        add_reason(
+            reasons,
+            "Relocation/onsite language detected",
+        )
+
     return score, reasons
 
 
@@ -955,10 +1126,8 @@ def apply_freshness_score(
     reasons,
     job,
 ):
-    age_days = (
-        calculate_job_age_days(
-            job.get("created_at")
-        )
+    age_days = calculate_job_age_days(
+        job.get("created_at")
     )
 
     if age_days is None:
@@ -1050,18 +1219,12 @@ def score_job(job):
             job
         )
 
-    # -----------------------------------------
-    # LOCATION
-    # -----------------------------------------
-
     before_location = score
 
-    score, reasons = (
-        apply_location_score(
-            score,
-            reasons,
-            job,
-        )
+    score, reasons = apply_location_score(
+        score,
+        reasons,
+        job,
     )
 
     location_points = (
@@ -1069,28 +1232,18 @@ def score_job(job):
         - before_location
     )
 
-    # -----------------------------------------
-    # RESTRICTIONS
-    # -----------------------------------------
-
     before_restrictions = score
 
-    score, reasons = (
-        apply_application_restrictions(
-            score,
-            reasons,
-            job,
-        )
+    score, reasons = apply_application_restrictions(
+        score,
+        reasons,
+        job,
     )
 
     restriction_points = (
         score
         - before_restrictions
     )
-
-    # -----------------------------------------
-    # FRESHNESS
-    # -----------------------------------------
 
     before_freshness = score
 
@@ -1109,10 +1262,6 @@ def score_job(job):
         - before_freshness
     )
 
-    # -----------------------------------------
-    # FINAL SCORE
-    # -----------------------------------------
-
     raw_score = score
 
     score = max(
@@ -1123,10 +1272,6 @@ def score_job(job):
         ),
     )
 
-    # -----------------------------------------
-    # PRIORITY
-    # -----------------------------------------
-
     if score >= 80:
         priority = "High"
 
@@ -1135,10 +1280,6 @@ def score_job(job):
 
     else:
         priority = "Low"
-
-    # -----------------------------------------
-    # AUTO-APPLY RECOMMENDATION
-    # -----------------------------------------
 
     eligibility = normalize(
         job.get(
@@ -1161,16 +1302,29 @@ def score_job(job):
             "us only",
             "eu/uk only",
             "emea",
+            "relocation / onsite",
         ]
     )
+
+    search_card = is_search_card(job)
 
     if (
         score >= 80
         and safe_location
         and not restricted
+        and not search_card
     ):
         application_recommendation = (
             "Strong candidate for auto-apply"
+        )
+
+    elif (
+        score >= 70
+        and search_card
+        and not restricted
+    ):
+        application_recommendation = (
+            "Open job board and apply to matching listings"
         )
 
     elif (
@@ -1186,30 +1340,18 @@ def score_job(job):
             "Do not auto-apply"
         )
 
-    # -----------------------------------------
-    # OUTPUT
-    # -----------------------------------------
-
     job["fit_score"] = score
 
     job["priority"] = priority
 
-    job["fit_reasons"] = (
-        reasons[:8]
-    )
+    job["fit_reasons"] = reasons[:8]
 
-    job["matched_skills"] = (
-        matched_skills
-    )
+    job["matched_skills"] = matched_skills
 
-    job["age_days"] = (
+    job["age_days"] = age_days
+
+    job["freshness"] = freshness_label(
         age_days
-    )
-
-    job["freshness"] = (
-        freshness_label(
-            age_days
-        )
     )
 
     job["application_recommendation"] = (

@@ -50,6 +50,69 @@ BLOCKED_COMPANIES = [
 ]
 
 
+MAX_TOTAL_JOBS = 80
+MAX_SEARCH_CARDS_TOTAL = 45
+MAX_REAL_JOBS_TOTAL = 35
+MAX_SEARCH_CARDS_PER_SOURCE_ROLE = 6
+MAX_REAL_JOBS_PER_SOURCE = 15
+
+
+PRIORITY_SOURCE_ORDER = {
+    "Indeed India": 100,
+    "Naukri": 95,
+    "LinkedIn": 90,
+    "Cutshort": 80,
+    "Wellfound": 75,
+    "Greenhouse": 65,
+    "Company Watchlist": 60,
+    "Arbeitnow Backup": 20,
+    "Remote OK Backup": 15,
+}
+
+
+TARGET_NCR_TERMS = [
+    "india",
+    "remote india",
+    "noida",
+    "gurgaon",
+    "gurugram",
+    "delhi",
+    "delhi ncr",
+    "ncr",
+]
+
+
+BLOCKED_LOCATION_TERMS = [
+    "usa",
+    "united states",
+    "remote us",
+    "remote usa",
+    "us remote",
+    "san francisco",
+    "new york",
+    "washington, dc",
+    "washington d.c",
+    "london",
+    "united kingdom",
+    " uk",
+    "uk ",
+    "berlin",
+    "germany",
+    "remote europe",
+    "remote - europe",
+    "europe only",
+    "latin america",
+    "colombia",
+    "brazil",
+    "argentina",
+    "chile",
+    "mexico",
+    "türkiye",
+    "turkey",
+    "emea",
+]
+
+
 class ApplicationCreate(BaseModel):
     job_id: int
     title: str
@@ -195,46 +258,36 @@ def create_stable_job_id(
     ) & 0x7FFFFFFFFFFFFFFF
 
 
+def normalize_text(value: str) -> str:
+    return (
+        value
+        or ""
+    ).strip().lower()
+
+
 def location_has_blocked_region_for_india(
     job_location: str,
 ) -> bool:
-    location = (
+    location = normalize_text(
         job_location
-        or ""
-    ).lower()
-
-    blocked_phrases = [
-        "usa",
-        "united states",
-        "remote us",
-        "remote usa",
-        "us remote",
-        "san francisco",
-        "new york",
-        "washington, dc",
-        "washington d.c",
-        "london",
-        "united kingdom",
-        " uk",
-        "uk ",
-        "berlin",
-        "germany",
-        "remote europe",
-        "remote - europe",
-        "europe only",
-        "latin america",
-        "colombia",
-        "brazil",
-        "argentina",
-        "chile",
-        "mexico",
-        "türkiye",
-        "turkey",
-    ]
+    )
 
     return any(
         phrase in location
-        for phrase in blocked_phrases
+        for phrase in BLOCKED_LOCATION_TERMS
+    )
+
+
+def location_has_target_india_region(
+    job_location: str,
+) -> bool:
+    location = normalize_text(
+        job_location
+    )
+
+    return any(
+        phrase in location
+        for phrase in TARGET_NCR_TERMS
     )
 
 
@@ -243,26 +296,32 @@ def location_matches(
     requested_location: str,
     remote_eligibility: str,
 ) -> bool:
-    job_location_lower = (
+    job_location_lower = normalize_text(
         job_location
-        or ""
-    ).lower()
+    )
 
-    requested_lower = (
+    requested_lower = normalize_text(
         requested_location
-        or ""
-    ).lower()
+    )
 
     eligibility = (
         remote_eligibility
         or "Unknown"
     )
 
+    eligibility_lower = normalize_text(
+        eligibility
+    )
+
     if requested_location in [
         "Remote worldwide",
         "Worldwide",
     ]:
-        return True
+        return eligibility_lower in [
+            "worldwide",
+            "india",
+            "unknown",
+        ]
 
     if requested_location == "India":
         if eligibility in [
@@ -271,7 +330,9 @@ def location_matches(
         ]:
             return True
 
-        if "india" in job_location_lower:
+        if location_has_target_india_region(
+            job_location
+        ):
             return True
 
         if (
@@ -285,11 +346,43 @@ def location_matches(
 
         return False
 
+    if requested_location in [
+        "Noida",
+        "Gurgaon",
+        "Gurugram",
+        "Delhi",
+        "Delhi NCR",
+    ]:
+        if requested_lower in job_location_lower:
+            return True
+
+        if (
+            requested_location == "Delhi NCR"
+            and any(
+                term in job_location_lower
+                for term in [
+                    "noida",
+                    "gurgaon",
+                    "gurugram",
+                    "delhi",
+                    "ncr",
+                ]
+            )
+        ):
+            return True
+
+        if eligibility in [
+            "Worldwide",
+            "India",
+        ]:
+            return True
+
+        return False
+
     if requested_location == "Singapore":
         return (
             "singapore" in job_location_lower
             or eligibility == "Worldwide"
-            or eligibility == "Unknown"
         )
 
     if requested_location == "Dubai":
@@ -298,20 +391,306 @@ def location_matches(
             or "uae" in job_location_lower
             or "united arab emirates" in job_location_lower
             or eligibility == "Worldwide"
-            or eligibility == "Unknown"
         )
 
     if requested_location == "Thailand":
         return (
             "thailand" in job_location_lower
             or eligibility == "Worldwide"
-            or eligibility == "Unknown"
         )
 
     if requested_lower in job_location_lower:
         return True
 
     return eligibility == "Worldwide"
+
+
+def source_rank(
+    source: str,
+) -> int:
+    return PRIORITY_SOURCE_ORDER.get(
+        source,
+        0,
+    )
+
+
+def is_search_card(
+    job,
+) -> bool:
+    return bool(
+        job.get("is_search_card")
+    )
+
+
+def decorate_job(
+    job,
+):
+    external_id = job.get(
+        "external_id",
+        job.get(
+            "job_url",
+            "",
+        ),
+    )
+
+    if not external_id:
+        return None
+
+    job_copy = dict(job)
+
+    job_copy["id"] = create_stable_job_id(
+        external_id
+    )
+
+    resume_info = get_resume_for_role(
+        job_copy["role_type"]
+    )
+
+    if resume_info:
+        job_copy["resume_filename"] = (
+            resume_info["filename"]
+        )
+
+        job_copy["resume_exists"] = (
+            resume_info["exists"]
+        )
+
+        job_copy["resume"] = (
+            "BDM Resume"
+            if job_copy["role_type"]
+            == "US IT Recruiter"
+            else "AI Resume"
+        )
+
+    if (
+        job_copy.get(
+            "remote_eligibility"
+        )
+        == "Unknown"
+    ):
+        job_copy[
+            "requires_human_review"
+        ] = True
+
+    job_copy["status"] = (
+        "Needs human review"
+        if job_copy.get(
+            "requires_human_review",
+            False,
+        )
+        else "Ready to apply"
+    )
+
+    job_copy = score_job(
+        job_copy
+    )
+
+    return job_copy
+
+
+def should_keep_job(
+    job,
+    role_type,
+    location,
+    remote_only,
+):
+    company = job.get(
+        "company",
+        "",
+    )
+
+    if is_blocked_company(
+        company
+    ):
+        return False
+
+    if (
+        role_type != "Both"
+        and job.get("role_type") != role_type
+    ):
+        return False
+
+    if (
+        remote_only
+        and not job.get(
+            "remote",
+            False,
+        )
+    ):
+        return False
+
+    if not location_matches(
+        job_location=job.get(
+            "location",
+            "",
+        ),
+        requested_location=location,
+        remote_eligibility=job.get(
+            "remote_eligibility",
+            "Unknown",
+        ),
+    ):
+        return False
+
+    return True
+
+
+def limit_search_cards(
+    jobs,
+):
+    selected = []
+    counts = {}
+
+    search_cards = [
+        job
+        for job in jobs
+        if is_search_card(job)
+    ]
+
+    search_cards.sort(
+        key=lambda item: (
+            source_rank(
+                item.get(
+                    "source",
+                    "",
+                )
+            ),
+            item.get(
+                "fit_score",
+                0,
+            ),
+            item.get(
+                "created_at",
+                0,
+            ),
+        ),
+        reverse=True,
+    )
+
+    for job in search_cards:
+        if len(selected) >= MAX_SEARCH_CARDS_TOTAL:
+            break
+
+        key = (
+            job.get("source"),
+            job.get("role_type"),
+        )
+
+        current_count = counts.get(
+            key,
+            0,
+        )
+
+        if (
+            current_count
+            >= MAX_SEARCH_CARDS_PER_SOURCE_ROLE
+        ):
+            continue
+
+        counts[key] = current_count + 1
+
+        selected.append(
+            job
+        )
+
+    return selected
+
+
+def limit_real_jobs(
+    jobs,
+):
+    selected = []
+    counts = {}
+
+    real_jobs = [
+        job
+        for job in jobs
+        if not is_search_card(job)
+    ]
+
+    real_jobs.sort(
+        key=lambda item: (
+            item.get(
+                "fit_score",
+                0,
+            ),
+            source_rank(
+                item.get(
+                    "source",
+                    "",
+                )
+            ),
+            item.get(
+                "created_at",
+                0,
+            ),
+        ),
+        reverse=True,
+    )
+
+    for job in real_jobs:
+        if len(selected) >= MAX_REAL_JOBS_TOTAL:
+            break
+
+        source = job.get(
+            "source",
+            "Unknown",
+        )
+
+        current_count = counts.get(
+            source,
+            0,
+        )
+
+        if current_count >= MAX_REAL_JOBS_PER_SOURCE:
+            continue
+
+        counts[source] = current_count + 1
+
+        selected.append(
+            job
+        )
+
+    return selected
+
+
+def build_focused_job_list(
+    jobs,
+):
+    search_cards = limit_search_cards(
+        jobs
+    )
+
+    real_jobs = limit_real_jobs(
+        jobs
+    )
+
+    focused_jobs = (
+        search_cards
+        + real_jobs
+    )
+
+    focused_jobs.sort(
+        key=lambda item: (
+            item.get(
+                "fit_score",
+                0,
+            ),
+            source_rank(
+                item.get(
+                    "source",
+                    "",
+                )
+            ),
+            item.get(
+                "created_at",
+                0,
+            ),
+        ),
+        reverse=True,
+    )
+
+    return focused_jobs[:MAX_TOTAL_JOBS]
 
 
 initialize_database()
@@ -370,109 +749,24 @@ def get_jobs(
         [],
     )
 
-    filtered_jobs = []
+    all_filtered_jobs = []
 
     for job in live_jobs:
-        company = job.get(
-            "company",
-            "",
-        )
-
-        if is_blocked_company(
-            company
+        if not should_keep_job(
+            job=job,
+            role_type=role_type,
+            location=location,
+            remote_only=remote_only,
         ):
             continue
 
-        if (
-            role_type != "Both"
-            and job.get("role_type") != role_type
-        ):
+        job_copy = decorate_job(
+            job
+        )
+
+        if job_copy is None:
             continue
 
-        if (
-            remote_only
-            and not job.get(
-                "remote",
-                False,
-            )
-        ):
-            continue
-
-        if not location_matches(
-            job_location=job.get(
-                "location",
-                "",
-            ),
-            requested_location=location,
-            remote_eligibility=job.get(
-                "remote_eligibility",
-                "Unknown",
-            ),
-        ):
-            continue
-
-        external_id = job.get(
-            "external_id",
-            job.get(
-                "job_url",
-                "",
-            ),
-        )
-
-        if not external_id:
-            continue
-
-        job_copy = dict(job)
-
-        job_copy["id"] = create_stable_job_id(
-            external_id
-        )
-
-        resume_info = get_resume_for_role(
-            job_copy["role_type"]
-        )
-
-        if resume_info:
-            job_copy["resume_filename"] = (
-                resume_info["filename"]
-            )
-
-            job_copy["resume_exists"] = (
-                resume_info["exists"]
-            )
-
-            job_copy["resume"] = (
-                "BDM Resume"
-                if job_copy["role_type"]
-                == "US IT Recruiter"
-                else "AI Resume"
-            )
-
-        if (
-            job_copy.get(
-                "remote_eligibility"
-            )
-            == "Unknown"
-        ):
-            job_copy[
-                "requires_human_review"
-            ] = True
-
-        job_copy["status"] = (
-            "Needs human review"
-            if job_copy.get(
-                "requires_human_review",
-                False,
-            )
-            else "Ready to apply"
-        )
-
-        job_copy = score_job(
-            job_copy
-        )
-
-        # Roleza freshness rule:
-        # Ignore postings older than 30 days.
         age_days = job_copy.get(
             "age_days"
         )
@@ -483,27 +777,17 @@ def get_jobs(
         if age_days > 30:
             continue
 
-        filtered_jobs.append(
+        all_filtered_jobs.append(
             job_copy
         )
 
-    filtered_jobs.sort(
-        key=lambda item: (
-            item.get(
-                "fit_score",
-                0,
-            ),
-            item.get(
-                "created_at",
-                0,
-            ),
-        ),
-        reverse=True,
+    focused_jobs = build_focused_job_list(
+        all_filtered_jobs
     )
 
     high_priority_count = sum(
         1
-        for job in filtered_jobs
+        for job in focused_jobs
         if job.get(
             "priority"
         ) == "High"
@@ -511,28 +795,63 @@ def get_jobs(
 
     medium_priority_count = sum(
         1
-        for job in filtered_jobs
+        for job in focused_jobs
         if job.get(
             "priority"
         ) == "Medium"
     )
 
+    search_card_count = sum(
+        1
+        for job in focused_jobs
+        if is_search_card(job)
+    )
+
+    real_job_count = (
+        len(focused_jobs)
+        - search_card_count
+    )
+
     return {
-        "jobs": filtered_jobs,
+        "jobs": focused_jobs,
+
         "total": len(
-            filtered_jobs
+            focused_jobs
         ),
+
+        "total_before_focus_limit": len(
+            all_filtered_jobs
+        ),
+
         "high_priority": (
             high_priority_count
         ),
+
         "medium_priority": (
             medium_priority_count
         ),
+
+        "search_cards": (
+            search_card_count
+        ),
+
+        "real_jobs": (
+            real_job_count
+        ),
+
         "sources": sources,
+
         "live": True,
+
         "source_errors": source_errors,
+
         "blocked_companies": (
             BLOCKED_COMPANIES
+        ),
+
+        "focus_note": (
+            "Roleza is showing the best limited set of jobs/search cards "
+            "instead of flooding the dashboard."
         ),
     }
 
@@ -581,11 +900,9 @@ def download_resume(
             detail="Resume type not found.",
         )
 
-    resume_path = (
-        RESUME_FILES[
-            role_type
-        ]
-    )
+    resume_path = RESUME_FILES[
+        role_type
+    ]
 
     if not resume_path.exists():
         raise HTTPException(
@@ -639,10 +956,8 @@ def create_application(
             ),
         )
 
-    resume_path = (
-        RESUME_FILES.get(
-            application.role_type
-        )
+    resume_path = RESUME_FILES.get(
+        application.role_type
     )
 
     if resume_path is None:
@@ -663,10 +978,8 @@ def create_application(
             ),
         )
 
-    applied_at = (
-        datetime.now().isoformat(
-            timespec="seconds"
-        )
+    applied_at = datetime.now().isoformat(
+        timespec="seconds"
     )
 
     try:
@@ -716,9 +1029,7 @@ def create_application(
 
             connection.commit()
 
-            application_id = (
-                cursor.lastrowid
-            )
+            application_id = cursor.lastrowid
 
     except sqlite3.IntegrityError as error:
         raise HTTPException(
@@ -804,10 +1115,8 @@ def update_application(
         ).fetchone()
 
     return {
-        "application": (
-            application_row_to_dict(
-                updated_row
-            )
+        "application": application_row_to_dict(
+            updated_row
         )
     }
 
